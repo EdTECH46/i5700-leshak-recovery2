@@ -47,7 +47,7 @@ static const char g_package_file[] = "@\0g_package_file";
 static RootInfo g_roots[] = {
     { "BOOT:", g_mtd_device, NULL, "boot", NULL, g_raw },
     { "SYSTEM:", "/dev/stl6", NULL, "system", "/system", "ext2" },
-    { "DATA:",  "/dev/stl5", NULL, "userdata", "/data", "ext2" },
+    { "DATA:",  "/dev/stl5", NULL, "userdata", "/data", "ext4" },
     { "CACHE:", "/dev/stl7", NULL, "cache", "/cache", "ext2" },
     { "PACKAGE:", NULL, NULL, NULL, NULL, g_package_file },
     { "RECOVERY:", g_mtd_device, NULL, "recovery", "/", g_raw },
@@ -346,12 +346,22 @@ format_root_device(const char *root)
             return ret;
         }
     }
-
-    if (info->filesystem != NULL && strcmp(info->filesystem, "ext2")==0) {
+ 
+    if (info->filesystem != NULL && strcmp(info->device, "/dev/stl5")==0 && strcmp(info->filesystem, "ext4")==0) {
 	LOGW("format: %s\n", info->device);
         pid_t pid = fork();
         if (pid == 0) {
-	    char *args[] = {"/xbin/mke2fs", "-b4096", info->device, NULL};
+	    char *args[] = {"/xbin/mke2fs", "-t ext4 -q -m 0 -b 4096 -O ^huge_file,extent", info->device, NULL};
+            execv("/xbin/mke2fs", args);
+            fprintf(stderr, "E:Can't run mke2fs format [%s]\n", strerror(errno));
+            _exit(-1);
+        }
+
+    else if (info->filesystem != NULL && strcmp(info->filesystem, "ext2")==0) {
+	LOGW("format: %s\n", info->device);
+        pid_t pid = fork();
+        if (pid == 0) {
+	    char *args[] = {"/xbin/mke2fs", "-b 4096", info->device, NULL};
             execv("/xbin/mke2fs", args);
             fprintf(stderr, "E:Can't run mke2fs format [%s]\n", strerror(errno));
             _exit(-1);
