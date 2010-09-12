@@ -255,7 +255,7 @@ ensure_root_path_mounted(const char *root_path)
         else {
             chdir("/");
         }
-	    if (mount(info->device, info->mount_point, info->filesystem, MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) {
+	    if (mount(info->device, info->mount_point, info->filesystem, MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL) && mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL) {
             if(mount(info->device, info->mount_point, "rfs", MS_NODEV | MS_NOSUID, "codepage=utf8,xattr,check=no")) {
 	            if (info->device2 == NULL) {
 	                LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));
