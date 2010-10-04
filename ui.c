@@ -171,21 +171,25 @@ static void draw_screen_locked(void)
     draw_progress_locked();
 
     if (show_text) {
-        gr_color(0, 0, 0, 160);
+        gr_color(255, 255, 255, 200);
         gr_fill(0, 0, gr_fb_width(), gr_fb_height());
 
         int i = 0;
         if (show_menu) {
-            gr_color(122, 154, 29, 255);
+            //gr_color(122, 154, 29, 255);
+            gr_color(19, 19, 199, 255);
             gr_fill(0, (menu_top+menu_sel) * CHAR_HEIGHT,
                     gr_fb_width(), (menu_top+menu_sel+1)*CHAR_HEIGHT+1);
 
             for (; i < menu_top + menu_items; ++i) {
                 if (i == menu_top + menu_sel) {
-                    gr_color(255, 255, 255, 255);
+                    //gr_color(255, 255, 255, 255);
+                    gr_color(240, 250, 100, 255);
                     draw_text_line(i, menu[i]);
-                    gr_color(122, 154, 29, 255);
+                    //gr_color(122, 154, 29, 255);
+                    gr_color(0, 0, 50, 255);
                 } else {
+                    gr_color(0, 0, 50, 255);
                     draw_text_line(i, menu[i]);
                 }
             }
@@ -194,7 +198,8 @@ static void draw_screen_locked(void)
             ++i;
         }
 
-        gr_color(193, 193, 193, 255);
+        //gr_color(193, 193, 193, 255);
+        gr_color(210, 10, 40, 255);
 
         for (; i < text_rows; ++i) {
             draw_text_line(i, text[(i+text_top) % text_rows]);

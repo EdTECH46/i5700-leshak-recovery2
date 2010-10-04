@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/mount.h>
@@ -28,33 +29,43 @@
 #include "roots.h"
 #include "common.h"
 
+// Only check for ext2/3/4 on the first run or when needed
+static int check_fstype = 1;
+
 typedef struct {
     const char *name;
     const char *device;
     const char *device2;  // If the first one doesn't work (may be NULL)
     const char *partition_name;
     const char *mount_point;
-    const char *filesystem;
+    char *filesystem;
 } RootInfo;
 
 /* Canonical pointers.
 xxx may just want to use enums
  */
 static const char g_mtd_device[] = "@\0g_mtd_device";
-static const char g_raw[] = "@\0g_raw";
+static const char g_raw[] = "@\0g_raw\0";
 static const char g_package_file[] = "@\0g_package_file";
+static char sys_fs[] = "auto\0";
+static char data_fs[] = "auto\0";
+static char cache_fs[] = "auto\0";
+
+// Console command to check if FS is ext2/ext4
+// Does not work for rfs, so we assume FS is rfs if not ext2/ext4
 
 static RootInfo g_roots[] = {
     { "BOOT:", g_mtd_device, NULL, "boot", NULL, g_raw },
-    { "SYSTEM:", "/dev/stl6", NULL, "system", "/system", "ext2" },
-    { "DATA:",  "/dev/stl5", NULL, "userdata", "/data", "ext4" },
-    { "CACHE:", "/dev/stl7", NULL, "cache", "/cache", "ext2" },
+    { "SYSTEM:", "/dev/stl6", NULL, "system", "/system", sys_fs },
+    { "DATA:",  "/dev/stl5", NULL, "userdata", "/data", data_fs },
+    { "CACHE:", "/dev/stl7", NULL, "cache", "/cache", cache_fs },
     { "PACKAGE:", NULL, NULL, NULL, NULL, g_package_file },
     { "RECOVERY:", g_mtd_device, NULL, "recovery", "/", g_raw },
-    { "SDCARD:", "/dev/block/mmcblk0p1", "/dev/block/mmcblk0", NULL, "/sdcard", "vfat" },
+    { "SDCARD:", "/dev/block/mmcblk0p1", "/dev/block/mmcblk0", NULL, "/sdcard", "vfat\0" },
     { "TMP:", NULL, NULL, NULL, "/tmp", NULL },
 };
 #define NUM_ROOTS (sizeof(g_roots) / sizeof(g_roots[0]))
+
 
 // TODO: for SDCARD:, try /dev/block/mmcblk0 if mmcblk0p1 fails
 
@@ -74,13 +85,65 @@ get_root_info_for_path(const char *root_path)
     }
     size_t len = c - root_path + 1;
     size_t i;
-    for (i = 0; i < NUM_ROOTS; i++) {
-        RootInfo *info = &g_roots[i];
-        if (strncmp(info->name, root_path, len) == 0) {
-            return info;
-        }
+    
+    RootInfo *info;
+    MountedVolume *volume;
+
+    if (check_fstype) {
+       LOGI("Checking FS types\n");
+       for (i = 1 ;i < 4 ;i++){
+          info = &g_roots[i];
+	  if(!chdir(info->mount_point)){
+       	    mkdir(info->mount_point, 0755);  // in case it doesn't already exist
+          }
+          else chdir("/");
+	  memset(info->filesystem,0,5);
+	  if ( !mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext2\0",5);
+          else if ( !mount(info->device, info->mount_point, "ext4", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext4\0",5);
+          else memcpy(info->filesystem,"rfs\0",4);	 
+       }
+    check_fstype = 0;
     }
+
+    for (i = 0; i < NUM_ROOTS; i++) {
+        info = &g_roots[i];
+        if (strncmp(info->name, root_path, len) == 0) {
+            LOGI("%s is the root\n",info->name);
+            return info;
+       }
+    }
+    //LOGE("Root Path <%s> not found\n",root_path);
     return NULL;
+}
+
+const char *
+get_fs_type(const char *root_path)
+{
+   get_root_info_for_path("SYSTEM:"); 
+
+   const char *c;
+
+    /* Find the first colon.
+     */
+    c = root_path;
+    while (*c != '\0' && *c != ':') {
+        c++;
+    }
+    if (*c == '\0') {
+        return NULL;
+    }
+    size_t len = c - root_path + 1;
+    size_t i;
+
+    RootInfo *info;
+
+    for (i = 0; i < NUM_ROOTS; i++) {
+        info = &g_roots[i];
+        if (strncmp(info->name, root_path, len) == 0) {
+            return info->filesystem;
+       }
+    }
+    return "Error !";
 }
 
 static const ZipArchive *g_package = NULL;
@@ -255,17 +318,22 @@ ensure_root_path_mounted(const char *root_path)
         else {
             chdir("/");
         }
-	    if (mount(info->device, info->mount_point, info->filesystem, MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL) && mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL) {
-            if(mount(info->device, info->mount_point, "rfs", MS_NODEV | MS_NOSUID, "codepage=utf8,xattr,check=no")) {
+        if ( strncmp(info->filesystem,"rfs",3) != 0 ){
+           if (mount(info->device, info->mount_point, info->filesystem, MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)){
+	       LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));
+	       return -1;
+           }               
+        } else {
+           if (mount(info->device, info->mount_point, "rfs", MS_NODEV | MS_NOSUID, "codepage=utf8,xattr,check=no")){
 	            if (info->device2 == NULL) {
 	                LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));
 	                return -1;
 	            } else if (mount(info->device2, info->mount_point, info->filesystem, MS_NOATIME | MS_NODEV | MS_NODIRATIME | MS_NOATIME , NULL)) {
-                    if(mount(info->device2, info->mount_point, "rfs", MS_NODEV | MS_NOSUID, "codepage=utf8,xattr,check=no")){
+                   if(mount(info->device2, info->mount_point, "rfs", MS_NODEV | MS_NOSUID, "codepage=utf8,xattr,check=no")){
 	                    LOGE("Can't mount %s (or %s)\n(%s)\n",
 	                    info->device, info->device2, strerror(errno));
 	                    return -1;
-	                }
+	            }
                 }
             }
         }
@@ -346,27 +414,32 @@ format_root_device(const char *root)
             return ret;
         }
     }
- 
-    if (info->filesystem != NULL && strcmp(info->device, "/dev/stl5")==0 && strcmp(info->filesystem, "ext4")==0) {
-	LOGW("format: %s\n", info->device);
-        pid_t pid = fork();
-        if (pid == 0) {
-	    char *args[] = {"/xbin/mke2fs", "-t ext4 -q -m 0 -b 4096 -O ^huge_file,extent", info->device, NULL};
-            execv("/xbin/mke2fs", args);
-            fprintf(stderr, "E:Can't run mke2fs format [%s]\n", strerror(errno));
-            _exit(-1);
-        }
 
-    else if (info->filesystem != NULL && strcmp(info->filesystem, "ext2")==0) {
-	LOGW("format: %s\n", info->device);
+    if (info->filesystem != NULL) {
         pid_t pid = fork();
-        if (pid == 0) {
-	    char *args[] = {"/xbin/mke2fs", "-b 4096", info->device, NULL};
-            execv("/xbin/mke2fs", args);
-            fprintf(stderr, "E:Can't run mke2fs format [%s]\n", strerror(errno));
-            _exit(-1);
-        }
-
+	 if (pid == 0) {
+	     if (info->filesystem != NULL && strncmp(info->filesystem, "ext",3) == 0) {
+                char fst[10]="-t";
+                strcat(fst,info->filesystem);
+	         LOGW("format: %s as %s\n", info->device, fst);
+                if (strncmp(info->filesystem, "ext4",4) == 0) {
+                   char *args[] = {"/xbin/mke2fs", &fst, "-b4096", "-q", "-m0", "-O^huge_file,extent", info->device, NULL};
+                   execv("/xbin/mke2fs", args);
+                } else {
+                   char *args[] = {"/xbin/mke2fs", &fst, "-b4096", "-q", info->device, NULL};
+                   execv("/xbin/mke2fs", args);
+                }
+                fprintf(stderr, "E:Can't run mke2fs format [%s]\n", strerror(errno));       
+	     } 
+	     else if (info->filesystem != NULL && strcmp(info->filesystem, "rfs")==0){
+	          LOGW("format: %s as rfs\n", info->device);
+                 char *args[] = {"/xbin/stl.format", info->device, NULL};
+                 execv("/xbin/stl.format", args);
+                 fprintf(stderr, "E:Can't run STL format [%s]\n", strerror(errno));
+            }
+        _exit(-1);
+	 }
+	 
         int status;
 
         while (waitpid(pid, &status, WNOHANG) == 0) {
@@ -378,7 +451,6 @@ format_root_device(const char *root)
         if (!WIFEXITED(status) || (WEXITSTATUS(status) != 0)) {
             LOGW("format_root_device: can't erase \"%s\"\n", root);
 	    return -1;
-            ui_print("Error running samdroid backup. Backup not performed.\n\n");
         }
 	return 0;
     }
