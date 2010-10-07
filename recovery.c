@@ -121,6 +121,7 @@ static const int MAX_ARG_LENGTH = 4096;
 static const int MAX_ARGS = 100;
 
 static int do_reboot = 1;
+static int reboot_method = 1;
 
 // open a file given in root:path format, mounting partitions as necessary
 static FILE*
@@ -267,6 +268,32 @@ static void
         translate_root_path(COMMAND_FILE, path, sizeof(path)) == NULL ||
         (unlink(path) && errno != ENOENT)) {
         LOGW("Can't unlink %s\n", COMMAND_FILE);
+    }
+
+    sync();  // For good measure.
+}
+
+static void
+        finish_recovery_reb(const char *send_intent)
+{
+
+    // Copy logs to cache so the system can find out what happened.
+    FILE *log = fopen_root_path(LOG_FILE, "a");
+    if (log == NULL) {
+        LOGE("Can't open %s\n", LOG_FILE);
+    } else {
+        FILE *tmplog = fopen(TEMPORARY_LOG_FILE, "r");
+        if (tmplog == NULL) {
+            LOGE("Can't open %s\n", TEMPORARY_LOG_FILE);
+        } else {
+            static long tmplog_offset = 0;
+            fseek(tmplog, tmplog_offset, SEEK_SET);  // Since last write
+            char buf[4096];
+            while (fgets(buf, sizeof(buf), tmplog)) fputs(buf, log);
+            tmplog_offset = ftell(tmplog);
+            check_and_fclose(tmplog, TEMPORARY_LOG_FILE);
+        }
+        check_and_fclose(log, LOG_FILE);
     }
 
     sync();  // For good measure.
@@ -1028,6 +1055,8 @@ static void choose_os()
 
     if (ensure_root_path_mounted("SDCARD:")) { ui_print("\nError mount sdcard\n"); return; }
     if (ensure_root_path_mounted("CACHE:")) { ui_print("\nError mount cache\n"); return; }
+    if (ensure_root_path_unmounted("SYSTEM:")) { ui_print("\nError unmount system\n"); return; }
+	if (ensure_root_path_unmounted("DATA:")) { ui_print("\nError unmount data\n"); return; }
     FILE* f = fopen("/sdcard/.bootlst","r");
     if (f == NULL) {
         ui_print("Can't open /sdcard/.bootlst\n");
@@ -1035,8 +1064,7 @@ static void choose_os()
     }
     char* list[20];
     list[0] = "Back to main menu";
-    list[1] = "Boot from internal memory";
-    int i=2;
+    int i=1;
     while(!feof(f))
     {
         list[i]=malloc(50 * sizeof(char));
@@ -1051,32 +1079,32 @@ static void choose_os()
         i++;
     }
     fclose(f);
-    ui_print("%d\n",i);
     list[i-1]=NULL;
 //    ui_print("\nReaded succesfull");
 
     for (;;) {
+		if (ensure_root_path_unmounted("SYSTEM:")) { ui_print("\nError unmount system\n"); return; }
+		if (ensure_root_path_unmounted("DATA:")) { ui_print("\nError unmount data\n"); return; }
+    
         int chosen_item = get_selected_item(headers, list);
-        ui_print("\n%d",chosen_item);
         if (chosen_item >= 0)
         {
             if(chosen_item == 0) { break; } /* "Back" choosed */
+            ui_print("INIT New OS...");
             char* file_name;
-            if(chosen_item == 1) {          /* "Internal" choosed */
-
-                break;
-                
-            }
-            else {
+            char* dir_name;
+          
                 file_name = malloc(60 * sizeof(char));
                 strcpy(file_name,"/sdcard/");
                 strcat(file_name,list[chosen_item]);
-                strcat(file_name,"/init.rc");
-            }
+                dir_name = malloc( (strlen(file_name)+1)*sizeof(char) );
+                strcpy(dir_name,file_name);
+                strcat(file_name,"/init.sh");
+            
 
             /* Copying init.rc from choosed folder to /sdcard/next_step.rc */
 
-            FILE* input=fopen(file_name,"r");
+            /*FILE* input=fopen(file_name,"r");
             if (input == NULL) {
                 ui_print("\nCan't open %s for read",file_name);
                 break;
@@ -1093,17 +1121,51 @@ static void choose_os()
             }
             fclose(input);
             fclose(output);
-            ui_print("\nSuccessful copy %s to /init.rc",file_name);
-            char **args = (char **) malloc(sizeof(char*));
-	    args[0]=NULL;
-	
-	    pid_t pid = fork();
-	    if (pid == 0) {
-	        execv("/init", args);
-	        _exit(-1);
-    	    }
-        }
+            ui_print("\nSuccessful copy %s to /init.rc",file_name);*/
+            chdir(dir_name);
+			char *args[] = {"/xbin/ash", file_name, NULL};          
+			pid_t pid = fork();
+			if (pid == 0) {
+				execv("/xbin/ash", args);
+				fprintf(stderr, "E:Can't run %s\n(%s)\n",file_name, strerror(errno));
+				_exit(-1);
+				}
+			int status;
+
+            while (waitpid(pid, &status, WNOHANG) == 0) {
+                sleep(1);
+                ui_print(".");
+            }
+			ui_print("done\nBooting New OS..\nPlease wait...");
+			ui_end_menu();
+			struct bootloader_message boot;
+			memset(&boot, 0, sizeof(boot));
+			set_bootloader_message(&boot);
+			args[0]=NULL;
+			pid = fork();
+			if (pid == 0) {
+				execv("/init_new", args);
+				_exit(-1);
+				}
+				
+			status;
+
+            while (waitpid(pid, &status, WNOHANG) == 0) {
+                sleep(900);
+            }
+			do_reboot=0;
+		}
     }
+}
+
+static void recovery_boot() {
+	struct bootloader_message boot;
+    memset(&boot, 0, sizeof(boot));
+    get_bootloader_message(&boot);  // this may fail, leaving a zeroed structure
+	strlcpy(boot.command, "boot-recovery", sizeof(boot.command));
+    strlcpy(boot.recovery, "recovery\n", sizeof(boot.recovery));
+    set_bootloader_message(&boot);
+    sync();
 }
 
 static void
@@ -1119,19 +1181,21 @@ static void
 
     // these constants correspond to elements of the items[] list.
 #define ITEM_REBOOT        0
-#define ITEM_APPLY_UPDATE  1
-#define ITEM_APPLY_ANYZIP  2
-#define ITEM_SAMDROID      3
-#define ITEM_TAR_BACKUP    4
-#define ITEM_WIPE_DATA     5
-#define ITEM_PARTED        6
-#define ITEM_MOUNT         7
-#define ITEM_CHOOSE_OS     8
-#define ITEM_RESTORE       9
-#define ITEM_FSCK          10
+#define ITEM_REBOOT_REC    1
+#define ITEM_APPLY_UPDATE  2
+#define ITEM_APPLY_ANYZIP  3
+#define ITEM_SAMDROID      4
+#define ITEM_TAR_BACKUP    5
+#define ITEM_WIPE_DATA     6
+#define ITEM_PARTED        7
+#define ITEM_MOUNT         8
+#define ITEM_CHOOSE_OS     9
+#define ITEM_RESTORE       10
+#define ITEM_FSCK          11
 
 
     static char* items[] = { "Reboot system now [Home+Back]",
+							 "Reboot to recovery",
                              "Apply sdcard/update.zip",
                              "Apply any zip from SD",
                              "Samdroid v0.2.1 backup (4 Odin)",
@@ -1212,10 +1276,15 @@ static void
                 // TODO: write here
                 choose_os();
                 if (!ui_text_visible()) return;
-                break;
+                return;
 
             case ITEM_REBOOT:
                 return;
+                
+            case ITEM_REBOOT_REC:
+				recovery_boot();
+				reboot_method=0;
+				return;
 
             case ITEM_PARTED:
                 choose_sdparted_type();
@@ -1463,7 +1532,8 @@ int
     // maybe_install_firmware_update(send_intent);
 
     // Otherwise, get ready to boot the main system...
-    finish_recovery(send_intent);
+    if (reboot_method) finish_recovery(send_intent);
+    else finish_recovery_reb(send_intent);
     sync();
     if (do_reboot)
     {
