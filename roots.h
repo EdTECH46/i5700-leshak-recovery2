@@ -24,6 +24,7 @@
  * components, like "SYSTEM:a/b/c".
  */
 
+
 /* Associate this package with the package root "PKG:".
  */
 int register_package_root(const ZipArchive *package, const char *package_path);
@@ -38,6 +39,7 @@ int is_package_root_path(const char *root_path);
  */
 const char *translate_root_path(const char *root_path,
         char *out_buf, size_t out_buf_len);
+       
 
 /* Takes a string like "PKG:lib/libc.so" and returns a pointer to
  * the containing zip file and a path like "lib/libc.so".

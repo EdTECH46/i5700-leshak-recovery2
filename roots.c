@@ -51,9 +51,6 @@ static char sys_fs[] = "auto\0";
 static char data_fs[] = "auto\0";
 static char cache_fs[] = "auto\0";
 
-// Console command to check if FS is ext2/ext4
-// Does not work for rfs, so we assume FS is rfs if not ext2/ext4
-
 static RootInfo g_roots[] = {
     { "BOOT:", g_mtd_device, NULL, "boot", NULL, g_raw },
     { "SYSTEM:", "/dev/stl6", NULL, "system", "/system", sys_fs },

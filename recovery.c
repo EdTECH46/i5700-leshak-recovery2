@@ -1067,16 +1067,23 @@ static void choose_os()
     int i=1;
     while(!feof(f))
     {
+		char* temp=malloc(50 * sizeof(char));
         list[i]=malloc(50 * sizeof(char));
-        fgets(list[i],50,f);
+        fgets(temp,50,f);
         int j=0;
         for(j=0;j<50;j++) {
-            if(list[i][j] == '\n' || list[i][j] == '\r') {
-                list[i][j]='\0';
+            if(temp[j] == '\n' || temp[j] == '\r') {
+                temp[j]='\0';
                 break;
             }
         }
-        i++;
+        int x;
+        for (x=0;x<i;x++)
+			if (!strcmp(list[x],temp)) break;
+		if ( i == x ) {
+			strcpy(list[i],temp); 
+			i++;
+		}
     }
     fclose(f);
     list[i-1]=NULL;
@@ -1181,7 +1188,7 @@ static void
 
     // these constants correspond to elements of the items[] list.
 #define ITEM_REBOOT        0
-#define ITEM_REBOOT_REC    1
+#define ITEM_HALT		   1
 #define ITEM_APPLY_UPDATE  2
 #define ITEM_APPLY_ANYZIP  3
 #define ITEM_SAMDROID      4
@@ -1195,7 +1202,7 @@ static void
 
 
     static char* items[] = { "Reboot system now [Home+Back]",
-							 "Reboot to recovery",
+							 "Shut down now",
                              "Apply sdcard/update.zip",
                              "Apply any zip from SD",
                              "Samdroid v0.2.1 backup (4 Odin)",
@@ -1276,13 +1283,13 @@ static void
                 // TODO: write here
                 choose_os();
                 if (!ui_text_visible()) return;
-                return;
+                break;
 
             case ITEM_REBOOT:
+				reboot_method=1;
                 return;
                 
-            case ITEM_REBOOT_REC:
-				recovery_boot();
+            case ITEM_HALT:
 				reboot_method=0;
 				return;
 
@@ -1472,7 +1479,18 @@ int
     ui_print("Build: ");
     ui_print(prop_value);
     ui_print("\n  by LeshaK (forum.samdroid.net)");
-    ui_print("\n  modified by antibyte & Xmister\n\n");
+    ui_print("\n  modified by antibyte & Xmister");
+    ui_print("\n  version 0.4\n\n");
+    
+    /*FS INFO*/
+    ui_print("Filesystems:\n");
+    char * fst = get_fs_type("SYSTEM:");
+		ui_print("SYSTEM:\t%s\n",fst);
+		fst = get_fs_type("DATA:");
+		ui_print("DATA:\t%s\n",fst);
+		fst = get_fs_type("CACHE:");
+		ui_print("CACHE:\t%s\n",fst);
+    
     get_args(&argc, &argv);
 
     int previous_runs = 0;
@@ -1532,10 +1550,10 @@ int
     // maybe_install_firmware_update(send_intent);
 
     // Otherwise, get ready to boot the main system...
-    if (reboot_method) finish_recovery(send_intent);
-    else finish_recovery_reb(send_intent);
     sync();
-    if (do_reboot)
+    finish_recovery(send_intent);
+    if (!reboot_method) reboot(RB_POWER_OFF);
+    else if (do_reboot)
     {
     	ui_print("Rebooting...\n");
 	sync();
