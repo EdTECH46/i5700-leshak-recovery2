@@ -122,6 +122,7 @@ static const int MAX_ARGS = 100;
 
 static int do_reboot = 1;
 static int reboot_method = 1;
+char os[50];
 
 // open a file given in root:path format, mounting partitions as necessary
 static FILE*
@@ -1160,6 +1161,65 @@ static void recovery_boot() {
     sync();
 }
 
+
+static void init_os (char** items) {
+	if ( !strlen(os) ) {
+				ui_print("You can't start internal os from here!\n");
+				return;
+			}
+	items[9]=calloc(70,sizeof(char));
+    strcpy(items[9],"Boot ");
+    strcat(items[9],os);
+    strcat(items[9]," ->");
+    
+    ensure_root_path_unmounted("SYSTEM:");
+    ensure_root_path_unmounted("DATA:");
+    ensure_root_path_mounted("SDCARD:");
+    
+    RootInfo* info=get_info("SYSTEM:");
+    char* filename=malloc(100*sizeof(char));
+    strcpy(filename,"/sdcard/");
+    strcat(filename,os);
+    strcat(filename,"/system.img");
+    info->device=filename;
+    
+    info=get_info("DATA:");
+    filename=malloc(100*sizeof(char));
+    strcpy(filename,"/sdcard/");
+    strcat(filename,os);
+    strcat(filename,"/data.img");
+    info->device=filename;
+    
+    recheck();
+    
+				char *args[] = {"/xbin/mknod", "/dev/loop0", "b", "7", "0", NULL};          
+				pid_t pid = fork();
+				if (pid == 0) {
+					execv("/xbin/mknod", args);
+					fprintf(stderr, "E:Can't make loop0\n(%s)\n", strerror(errno));
+					_exit(-1);
+					}
+				int status;
+
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(1);
+					ui_print(".");
+				}
+				
+				char *args2[] = {"/xbin/mknod", "/dev/loop1", "b", "7", "1", NULL};          
+				pid = fork();
+				if (pid == 0) {
+					execv("/xbin/mknod", args2);
+					fprintf(stderr, "E:Can't make loop1\n(%s)\n", strerror(errno));
+					_exit(-1);
+					}
+
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(1);
+					ui_print(".");
+				}
+}
+
 static void
         prompt_and_wait()
 {
@@ -1186,7 +1246,7 @@ static void
 #define ITEM_FSCK          11
 
 
-    static char* items[] = { "Reboot system now [Home+Back]",
+    char* items[] = { "Reboot system now [Home+Back]",
 							 "Shut down now",
                              "Apply sdcard/update.zip",
                              "Apply any zip from SD",
@@ -1195,8 +1255,22 @@ static void
                              "Wipe, choose what ->",
                              "Partition sdcard ->",
                              "Mount ->",
-                             /*"Choose OS ->",*/
+                             NULL,
                              NULL };
+                             
+	if ( strlen(os) ) init_os(items);
+	
+	/*FS INFO*/
+    ui_print("Filesystems:\n");
+		char * fst = (char *)get_fs_type("SYSTEM:");
+		ui_print("SYSTEM:\t%s\n",fst);
+		fst = (char *)get_fs_type("DATA:");
+		ui_print("DATA:\t%s\n",fst);
+		fst = (char *)get_fs_type("CACHE:");
+		ui_print("CACHE:\t%s\n",fst);
+	ui_print("\n\n");
+    
+    
 
     static char* items0[] = { "Reboot system now [Home+Back]",
                               "Apply sdcard/update.zip",
@@ -1257,6 +1331,7 @@ static void
             case ITEM_CHOOSE_OS:
                 /*choose_os();
                 if (!ui_text_visible()) return;*/
+                start_os();
                 break;
 
             case ITEM_REBOOT:
@@ -1428,100 +1503,20 @@ static void
     }
 }
 
-static char
-        pre_menu()
-{
-    static char* headers[] = { 	"Android system recovery <"
-            	              	EXPAND(RECOVERY_API_VERSION) ">",
-                                "   -- Samsung Spica i5700 --",
-                                "",
-                                "Use Up/Down and OK to select",
-                                "",
-                                NULL };
-
-    // these constants correspond to elements of the items[] list.
-#define ITEM_RECOVERY      0
-
-	if (ensure_root_path_mounted("SDCARD:")) return 1;
-	if (ensure_root_path_mounted("CACHE:")) return 1;
-    if (ensure_root_path_unmounted("SYSTEM:")) return 1;
-	if (ensure_root_path_unmounted("DATA:")) return 1;
-
-    static char* list[20];
-    list[0]="Start Recovery";
-
-
-    FILE* f = fopen("/sdcard/.bootlst", "r");
-    if (f == NULL) {
-        return 1;
-    }
-		int i=1;
-		while(!feof(f))
-		{
-			char* temp=malloc(50 * sizeof(char));
-			list[i]=malloc(50 * sizeof(char));
-			fgets(temp,50,f);
-			int j=0;
-			for(j=0;j<50;j++) {
-				if(temp[j] == '\n' || temp[j] == '\r') {
-					temp[j]='\0';
-					break;
-				}
+void start_os() {
+			if ( !strlen(os) ) {
+				ui_print("You can't start internal os from here!\n");
+				return;
 			}
-			int x;
-			for (x=0;x<i;x++)
-				if (!strcmp(list[x],temp)) break;
-			if ( i == x ) {
-				strcpy(list[i],temp); 
-				i++;
-			}
-		}
-        list[i-1]=NULL;
-        fclose(f);
-        ui_clear_key_queue();
-		ui_start_menu(headers, list);
-
-    int selected = 0;
-    int chosen_item = -1;
-
-    finish_recovery(NULL);
-    ui_reset_progress();
-    for (;;) {
-		if (ensure_root_path_unmounted("SYSTEM:")) return 1;
-		if (ensure_root_path_unmounted("DATA:")) return 1;
-        int key = ui_wait_key();
-
-        //---- get key code for spica
-        //	char stt[32];
-        //	sprintf(stt, "Key: %d [%2.2x]\n", key, key);
-        //	ui_print(stt);
-        //----
-
-        int visible = ui_text_visible();
-
-        if ((key == KEY_DOWN || key == KEY_VOLUMEDOWN || key == KEY_I5700_DOWN) && visible) {
-            ++selected;
-            selected = ui_menu_select(selected);
-        } else if ((key == KEY_UP || key == KEY_VOLUMEUP || key == KEY_I5700_UP) && visible) {
-            --selected;
-            selected = ui_menu_select(selected);
-        } else if ((key == BTN_MOUSE || key == KEY_I5700_CENTER) && visible) {
-            chosen_item = selected;
-        }
-
-        if (chosen_item >= 0) {
-            // turn off the menu, letting ui_print() to scroll output
-            // on the screen.
-            ui_end_menu();
-
-            if(chosen_item == ITEM_RECOVERY) return 1;
-            ui_print("INIT New OS...");
+            ui_print("\nINIT New OS...");
             char* file_name;
             char* dir_name;
+            FILE* f;
+            int err;
           
                 file_name = malloc(60 * sizeof(char));
                 strcpy(file_name,"/sdcard/");
-                strcat(file_name,list[chosen_item]);
+                strcat(file_name,os);
                 dir_name = malloc( (strlen(file_name)+1)*sizeof(char) );
                 strcpy(dir_name,file_name);
                 strcat(file_name,"/init.sh");
@@ -1548,27 +1543,126 @@ static char
 				memset(&boot, 0, sizeof(boot));
 				set_bootloader_message(&boot);
 				args[0]=NULL;
-				pid = fork();
-				if (pid == 0) {
-					execv("/init_new", args);
-					_exit(-1);
-					}
-				while (waitpid(pid, &status, WNOHANG) == 0) {
-					sleep(900);
+				execv("/init_new", args);
+				/*while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(60);
 					ui_print("\nSomething went wrong :(\nPlease pull the battery out and reboot!");
-				}
+				}*/
 				do_reboot=0;
 			}
 			else {
-				ui_print("\n%s not exists!",file_name);
+				ui_print("\n%s not exists!\n",file_name);
+				err=1;
 			}
 			free(dir_name);
 			free(file_name);
-			break; //Give the absolute control to whatever we just started.
-		}
-		ui_clear_key_queue();
+}
+
+static char
+        pre_menu()
+{
+    static char* headers[] = { 	"     Boot loader by Xmister",
+                                "   -- Samsung Spica i5700 --",
+                                "",
+                                "Use Up/Down and OK to select",
+                                "",
+                                "Choose a recovery:",
+                                "",
+                                NULL };
+
+    // these constants correspond to elements of the items[] list.
+#define ITEM_RECOVERY      0
+	//rest a bit, to let FS's detected properly
+	sleep(3);
+	ui_clear_key_queue();
+	if (ensure_root_path_mounted("SDCARD:")) {
+		LOGE("BL: Cant' mount SDCARD");
+		return 1;
 	}
-return 0;
+    if (ensure_root_path_unmounted("SYSTEM:")) {
+		LOGE("BL: Cant' unmount SYSTEM");
+		return 1;
+	}
+	if (ensure_root_path_unmounted("DATA:")){
+		LOGE("BL: Cant' unmount SYSTEM");
+		return 1;
+	}
+	if (ensure_root_path_unmounted("CACHE:")){
+		LOGE("BL: Cant' unmount SYSTEM");
+		return 1;
+	}
+
+    static char* list[20];
+    list[ITEM_RECOVERY]="Start Internal";
+	static char* prefix="Start ";
+
+    FILE* f = fopen("/sdcard/.bootlst", "r");
+    if (f == NULL) {
+        return 1;
+    }
+		int i=ITEM_RECOVERY+1;
+		while(!feof(f))
+		{
+			char* temp=calloc(50,sizeof(char));
+			list[i]=malloc(50 * sizeof(char));
+			fgets(temp,50,f);
+			int j=0;
+			for(j=0;j<50;j++) {
+				if(temp[j] == '\n' || temp[j] == '\r') {
+					temp[j]='\0';
+					break;
+				}
+			}
+			int x;
+			for (x=0;x<i;x++)
+				if (!strcmp(&(list[x][6]),temp)) break;
+			if ( i == x ) {
+				strcpy(list[i],prefix);
+				strncpy(&(list[i][6]),temp,42); 
+				i++;
+			}
+		}
+        list[i-1]=NULL;
+        fclose(f);
+        ui_clear_key_queue();
+		ui_start_menu(headers, list);
+
+    int selected = 0;
+    int chosen_item = -1;
+    int err = 0;
+
+    for (;;) {
+        int key = ui_wait_key();
+
+        //---- get key code for spica
+        //	char stt[32];
+        //	sprintf(stt, "Key: %d [%2.2x]\n", key, key);
+        //	ui_print(stt);
+        //----
+
+        int visible = ui_text_visible();
+
+        if ((key == KEY_DOWN || key == KEY_VOLUMEDOWN || key == KEY_I5700_DOWN) && visible) {
+            ++selected;
+            selected = ui_menu_select(selected);
+        } else if ((key == KEY_UP || key == KEY_VOLUMEUP || key == KEY_I5700_UP) && visible) {
+            --selected;
+            selected = ui_menu_select(selected);
+        } else if ((key == BTN_MOUSE || key == KEY_I5700_CENTER) && visible) {
+            chosen_item = selected;
+        }
+		ui_clear_key_queue();
+        if (chosen_item >= ITEM_RECOVERY) {
+            // turn off the menu, letting ui_print() to scroll output
+            // on the screen.
+            if (chosen_item > ITEM_RECOVERY) {
+				strcpy(os,&(list[chosen_item][6]));
+			}
+            ui_end_menu();
+            break;
+		}
+	}
+return 1;
 }
 
 static void
@@ -1597,17 +1691,8 @@ int
     ui_print(prop_value);
     ui_print("\n  by LeshaK (forum.samdroid.net)");
     ui_print("\n  modified by antibyte & Xmister");
-    ui_print("\n  version 0.5\n\n");
+    ui_print("\n  version 0.6\n\n");
     
-    /*FS INFO*/
-    ui_print("Filesystems:\n");
-		char * fst = (char *)get_fs_type("SYSTEM:");
-		ui_print("SYSTEM:\t%s\n",fst);
-		fst = (char *)get_fs_type("DATA:");
-		ui_print("DATA:\t%s\n",fst);
-		fst = (char *)get_fs_type("CACHE:");
-		ui_print("CACHE:\t%s\n",fst);
-	ui_print("\n\n");
     
     get_args(&argc, &argv);
 

@@ -53,6 +53,19 @@ int is_root_path_mounted(const char *root_path);
 
 const char *get_fs_type(const char *root_path);
 
+typedef struct {
+    const char *name;
+    const char *device;
+    const char *device2;  // If the first one doesn't work (may be NULL)
+    const char *partition_name;
+    const char *mount_point;
+    char *filesystem;
+} RootInfo;
+
+RootInfo * get_info(const char *root_path);
+
+void recheck();
+
 int ensure_root_path_mounted(const char *root_path);
 
 int ensure_root_path_unmounted(const char *root_path);

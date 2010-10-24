@@ -32,14 +32,6 @@
 // Only check for ext2/3/4 on the first run or when needed
 static int check_fstype = 1;
 
-typedef struct {
-    const char *name;
-    const char *device;
-    const char *device2;  // If the first one doesn't work (may be NULL)
-    const char *partition_name;
-    const char *mount_point;
-    char *filesystem;
-} RootInfo;
 
 /* Canonical pointers.
 xxx may just want to use enums
@@ -66,6 +58,34 @@ static RootInfo g_roots[] = {
 
 // TODO: for SDCARD:, try /dev/block/mmcblk0 if mmcblk0p1 fails
 
+void recheck() {
+	check_fstype=1;
+}
+
+static int
+internal_root_mounted(const RootInfo *info)
+{
+    if (info->mount_point == NULL) {
+        return -1;
+    }
+//xxx if TMP: (or similar) just say "yes"
+
+    /* See if this root is already mounted.
+     */
+    int ret = scan_mounted_volumes();
+    if (ret < 0) {
+        return ret;
+    }
+    const MountedVolume *volume;
+    volume = find_mounted_volume_by_mount_point(info->mount_point);
+    if (volume != NULL) {
+        /* It's already mounted.
+         */
+        return 0;
+    }
+    return -1;
+}
+
 static const RootInfo *
 get_root_info_for_path(const char *root_path)
 {
@@ -90,14 +110,66 @@ get_root_info_for_path(const char *root_path)
        LOGI("Checking FS types\n");
        for (i = 1 ;i < 4 ;i++){
           info = &g_roots[i];
-	  if(!chdir(info->mount_point)){
+		  if(!chdir(info->mount_point)){
        	    mkdir(info->mount_point, 0755);  // in case it doesn't already exist
-          }
-          else chdir("/");
-	  memset(info->filesystem,0,5);
-	  if ( !mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext2\0",5);
-          else if ( !mount(info->device, info->mount_point, "ext4", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext4\0",5);
-          else memcpy(info->filesystem,"rfs\0",4);	 
+          } else chdir("/");
+          if (strstr(info->device,"/sdcard/") != NULL ) {
+			  strcpy(info->filesystem,"ext4");
+		  } else {		  
+			  memset(info->filesystem,0,5);
+			  if ( !mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext2\0",5);
+			  else if ( !mount(info->device, info->mount_point, "ext4", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext4\0",5);
+			  else memcpy(info->filesystem,"rfs\0",4);	 
+		  }
+       }
+    check_fstype = 0;
+    }
+
+    for (i = 0; i < NUM_ROOTS; i++) {
+        info = &g_roots[i];
+        if (strncmp(info->name, root_path, len) == 0) {
+            LOGI("%s is the root\n",info->name);
+            return info;
+       }
+    }
+    //LOGE("Root Path <%s> not found\n",root_path);
+    return NULL;
+}
+
+RootInfo * get_info(const char *root_path)
+{
+    const char *c;
+
+    /* Find the first colon.
+     */
+    c = root_path;
+    while (*c != '\0' && *c != ':') {
+        c++;
+    }
+    if (*c == '\0') {
+        return NULL;
+    }
+    size_t len = c - root_path + 1;
+    size_t i;
+    
+    RootInfo *info;
+    MountedVolume *volume;
+
+    if (check_fstype) {
+       LOGI("Checking FS types\n");
+       for (i = 1 ;i < 4 ;i++){
+          info = &g_roots[i];
+		  if(!chdir(info->mount_point)){
+       	    mkdir(info->mount_point, 0755);  // in case it doesn't already exist
+          } else chdir("/");
+          if (strstr(info->device,"/sdcard/") != NULL ) {
+			  strcpy(info->filesystem,"ext4");
+		  } else {		  
+			  memset(info->filesystem,0,5);
+			  if ( !mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext2\0",5);
+			  else if ( !mount(info->device, info->mount_point, "ext4", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext4\0",5);
+			  else memcpy(info->filesystem,"rfs\0",4);	 
+		  }
        }
     check_fstype = 0;
     }
@@ -233,30 +305,6 @@ translate_root_path(const char *root_path, char *out_buf, size_t out_buf_len)
     return out_buf;
 }
 
-static int
-internal_root_mounted(const RootInfo *info)
-{
-    if (info->mount_point == NULL) {
-        return -1;
-    }
-//xxx if TMP: (or similar) just say "yes"
-
-    /* See if this root is already mounted.
-     */
-    int ret = scan_mounted_volumes();
-    if (ret < 0) {
-        return ret;
-    }
-    const MountedVolume *volume;
-    volume = find_mounted_volume_by_mount_point(info->mount_point);
-    if (volume != NULL) {
-        /* It's already mounted.
-         */
-        return 0;
-    }
-    return -1;
-}
-
 int
 is_root_path_mounted(const char *root_path)
 {
@@ -315,7 +363,21 @@ ensure_root_path_mounted(const char *root_path)
         else {
             chdir("/");
         }
-        if ( strncmp(info->filesystem,"rfs",3) != 0 ){
+        if ( (strstr(info->device,"/sdcard/") != NULL) && (strstr(info->device,"mmcblk") == NULL ) ) {
+			char *args[] = {"/xbin/mount", "-t", info->filesystem, "-o", "loop,rw,noatime,nodiratime,nosuid,nodev,data=ordered,barrier=1", info->device, info->mount_point, NULL};          
+				pid_t pid = fork();
+				if (pid == 0) {
+					execv("/xbin/mount", args);
+					fprintf(stderr, "E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+					_exit(-1);
+					}
+				int status;
+
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(1);
+				}
+			return -1;
+	   } else if ( strncmp(info->filesystem,"rfs",3) != 0 ){
            if (mount(info->device, info->mount_point, info->filesystem, MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)){
 	       LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));
 	       return -1;
@@ -420,10 +482,10 @@ format_root_device(const char *root)
                 strcat(fst,info->filesystem);
 	         LOGW("format: %s as %s\n", info->device, fst);
                 if (strncmp(info->filesystem, "ext4",4) == 0) {
-                   char *args[] = {"/xbin/mke2fs", &fst, "-b4096", "-q", "-m0", "-O^huge_file,extent", info->device, NULL};
+                   char *args[] = {"/xbin/mke2fs", &fst, "-b4096", "-F", "-q", "-m0", "-O^huge_file,extent", info->device, NULL};
                    execv("/xbin/mke2fs", args);
                 } else {
-                   char *args[] = {"/xbin/mke2fs", &fst, "-b4096", "-q", info->device, NULL};
+                   char *args[] = {"/xbin/mke2fs", &fst, "-b4096", "-F", "-q", "-m0", info->device, NULL};
                    execv("/xbin/mke2fs", args);
                 }
                 fprintf(stderr, "E:Can't run mke2fs format [%s]\n", strerror(errno));       
