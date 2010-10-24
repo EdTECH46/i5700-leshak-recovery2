@@ -51,7 +51,7 @@ const char *translate_package_root_path(const char *root_path,
  */
 int is_root_path_mounted(const char *root_path);
 
-const char *check_fs_type(const char *root_path);
+const char *get_fs_type(const char *root_path);
 
 int ensure_root_path_mounted(const char *root_path);
 

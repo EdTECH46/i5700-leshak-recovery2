@@ -1108,59 +1108,44 @@ static void choose_os()
                 strcpy(dir_name,file_name);
                 strcat(file_name,"/init.sh");
             
+			if (  ( f=fopen(file_name,"r") )  )	{
+				fclose(f); 
+				chdir(dir_name);
+				char *args[] = {"/xbin/ash", file_name, NULL};          
+				pid_t pid = fork();
+				if (pid == 0) {
+					execv("/xbin/ash", args);
+					fprintf(stderr, "E:Can't run %s\n(%s)\n",file_name, strerror(errno));
+					_exit(-1);
+					}
+				int status;
 
-            /* Copying init.rc from choosed folder to /sdcard/next_step.rc */
-
-            /*FILE* input=fopen(file_name,"r");
-            if (input == NULL) {
-                ui_print("\nCan't open %s for read",file_name);
-                break;
-            }
-            FILE* output=fopen("/init.rc","w");
-            if (output == NULL) {
-                ui_print("\nCan't open /init.rc for write");
-                break;
-            }
-            while(!feof(input))
-            {
-                char c=fgetc(input);
-                fputc(c,output);
-            }
-            fclose(input);
-            fclose(output);
-            ui_print("\nSuccessful copy %s to /init.rc",file_name);*/
-            chdir(dir_name);
-			char *args[] = {"/xbin/ash", file_name, NULL};          
-			pid_t pid = fork();
-			if (pid == 0) {
-				execv("/xbin/ash", args);
-				fprintf(stderr, "E:Can't run %s\n(%s)\n",file_name, strerror(errno));
-				_exit(-1);
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(1);
+					ui_print(".");
 				}
-			int status;
-
-            while (waitpid(pid, &status, WNOHANG) == 0) {
-                sleep(1);
-                ui_print(".");
-            }
-			ui_print("done\nBooting New OS..\nPlease wait...");
-			ui_end_menu();
-			struct bootloader_message boot;
-			memset(&boot, 0, sizeof(boot));
-			set_bootloader_message(&boot);
-			args[0]=NULL;
-			pid = fork();
-			if (pid == 0) {
-				execv("/init_new", args);
-				_exit(-1);
+				ui_print("done\nBooting New OS..\nPlease wait...");
+				ui_end_menu();
+				struct bootloader_message boot;
+				memset(&boot, 0, sizeof(boot));
+				set_bootloader_message(&boot);
+				args[0]=NULL;
+				pid = fork();
+				if (pid == 0) {
+					execv("/init_new", args);
+					_exit(-1);
+					}
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(900);
+					ui_print("\nSomething went wrong :(\nPlease pull the battery out and reboot!");
 				}
-				
-			status;
-
-            while (waitpid(pid, &status, WNOHANG) == 0) {
-                sleep(900);
-            }
-			do_reboot=0;
+				do_reboot=0;
+			}
+			else {
+				ui_print("\n%s not exists!",file_name);
+			}
+			free(dir_name);
+			free(file_name);
 		}
     }
 }
@@ -1210,7 +1195,7 @@ static void
                              "Wipe, choose what ->",
                              "Partition sdcard ->",
                              "Mount ->",
-                             "Choose OS ->",
+                             /*"Choose OS ->",*/
                              NULL };
 
     static char* items0[] = { "Reboot system now [Home+Back]",
@@ -1253,16 +1238,6 @@ static void
                 usleep(1000);
             }
             chosen_item = ITEM_REBOOT;
-        } else if (alt && key == KEY_W) {
-            chosen_item = ITEM_WIPE_DATA;
-        } else if (alt && key == KEY_A) {
-            chosen_item = ITEM_APPLY_UPDATE;
-        } else if (alt && key == KEY_B) {
-            chosen_item = ITEM_SAMDROID;
-        } else if (alt && key == KEY_F) {
-            chosen_item = ITEM_FSCK;
-        } else if (alt && key == KEY_R) {
-            chosen_item = ITEM_RESTORE;
         } else if ((key == KEY_DOWN || key == KEY_VOLUMEDOWN || key == KEY_I5700_DOWN) && visible) {
             ++selected;
             selected = ui_menu_select(selected);
@@ -1280,9 +1255,8 @@ static void
 
             switch (chosen_item) {
             case ITEM_CHOOSE_OS:
-                // TODO: write here
-                choose_os();
-                if (!ui_text_visible()) return;
+                /*choose_os();
+                if (!ui_text_visible()) return;*/
                 break;
 
             case ITEM_REBOOT:
@@ -1454,6 +1428,149 @@ static void
     }
 }
 
+static char
+        pre_menu()
+{
+    static char* headers[] = { 	"Android system recovery <"
+            	              	EXPAND(RECOVERY_API_VERSION) ">",
+                                "   -- Samsung Spica i5700 --",
+                                "",
+                                "Use Up/Down and OK to select",
+                                "",
+                                NULL };
+
+    // these constants correspond to elements of the items[] list.
+#define ITEM_RECOVERY      0
+
+	if (ensure_root_path_mounted("SDCARD:")) return 1;
+	if (ensure_root_path_mounted("CACHE:")) return 1;
+    if (ensure_root_path_unmounted("SYSTEM:")) return 1;
+	if (ensure_root_path_unmounted("DATA:")) return 1;
+
+    static char* list[20];
+    list[0]="Start Recovery";
+
+
+    FILE* f = fopen("/sdcard/.bootlst", "r");
+    if (f == NULL) {
+        return 1;
+    }
+		int i=1;
+		while(!feof(f))
+		{
+			char* temp=malloc(50 * sizeof(char));
+			list[i]=malloc(50 * sizeof(char));
+			fgets(temp,50,f);
+			int j=0;
+			for(j=0;j<50;j++) {
+				if(temp[j] == '\n' || temp[j] == '\r') {
+					temp[j]='\0';
+					break;
+				}
+			}
+			int x;
+			for (x=0;x<i;x++)
+				if (!strcmp(list[x],temp)) break;
+			if ( i == x ) {
+				strcpy(list[i],temp); 
+				i++;
+			}
+		}
+        list[i-1]=NULL;
+        fclose(f);
+        ui_clear_key_queue();
+		ui_start_menu(headers, list);
+
+    int selected = 0;
+    int chosen_item = -1;
+
+    finish_recovery(NULL);
+    ui_reset_progress();
+    for (;;) {
+		if (ensure_root_path_unmounted("SYSTEM:")) return 1;
+		if (ensure_root_path_unmounted("DATA:")) return 1;
+        int key = ui_wait_key();
+
+        //---- get key code for spica
+        //	char stt[32];
+        //	sprintf(stt, "Key: %d [%2.2x]\n", key, key);
+        //	ui_print(stt);
+        //----
+
+        int visible = ui_text_visible();
+
+        if ((key == KEY_DOWN || key == KEY_VOLUMEDOWN || key == KEY_I5700_DOWN) && visible) {
+            ++selected;
+            selected = ui_menu_select(selected);
+        } else if ((key == KEY_UP || key == KEY_VOLUMEUP || key == KEY_I5700_UP) && visible) {
+            --selected;
+            selected = ui_menu_select(selected);
+        } else if ((key == BTN_MOUSE || key == KEY_I5700_CENTER) && visible) {
+            chosen_item = selected;
+        }
+
+        if (chosen_item >= 0) {
+            // turn off the menu, letting ui_print() to scroll output
+            // on the screen.
+            ui_end_menu();
+
+            if(chosen_item == ITEM_RECOVERY) return 1;
+            ui_print("INIT New OS...");
+            char* file_name;
+            char* dir_name;
+          
+                file_name = malloc(60 * sizeof(char));
+                strcpy(file_name,"/sdcard/");
+                strcat(file_name,list[chosen_item]);
+                dir_name = malloc( (strlen(file_name)+1)*sizeof(char) );
+                strcpy(dir_name,file_name);
+                strcat(file_name,"/init.sh");
+            
+			if (  ( f=fopen(file_name,"r") )  )	{
+				fclose(f); 
+				chdir(dir_name);
+				char *args[] = {"/xbin/ash", file_name, NULL};          
+				pid_t pid = fork();
+				if (pid == 0) {
+					execv("/xbin/ash", args);
+					fprintf(stderr, "E:Can't run %s\n(%s)\n",file_name, strerror(errno));
+					_exit(-1);
+					}
+				int status;
+
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(1);
+					ui_print(".");
+				}
+				ui_print("done\nBooting New OS..\nPlease wait...");
+				ui_end_menu();
+				struct bootloader_message boot;
+				memset(&boot, 0, sizeof(boot));
+				set_bootloader_message(&boot);
+				args[0]=NULL;
+				pid = fork();
+				if (pid == 0) {
+					execv("/init_new", args);
+					_exit(-1);
+					}
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(900);
+					ui_print("\nSomething went wrong :(\nPlease pull the battery out and reboot!");
+				}
+				do_reboot=0;
+			}
+			else {
+				ui_print("\n%s not exists!",file_name);
+			}
+			free(dir_name);
+			free(file_name);
+			break; //Give the absolute control to whatever we just started.
+		}
+		ui_clear_key_queue();
+	}
+return 0;
+}
+
 static void
         print_property(const char *key, const char *name, void *cookie)
 {
@@ -1473,23 +1590,24 @@ int
     tcflow(STDIN_FILENO, TCOOFF);
     
     char prop_value[PROPERTY_VALUE_MAX];
-    property_get("ro.modversion", &prop_value, "not set");
+    property_get("ro.modversion", prop_value, "not set");
 
     ui_init();
     ui_print("Build: ");
     ui_print(prop_value);
     ui_print("\n  by LeshaK (forum.samdroid.net)");
     ui_print("\n  modified by antibyte & Xmister");
-    ui_print("\n  version 0.4\n\n");
+    ui_print("\n  version 0.5\n\n");
     
     /*FS INFO*/
     ui_print("Filesystems:\n");
-    char * fst = get_fs_type("SYSTEM:");
+		char * fst = (char *)get_fs_type("SYSTEM:");
 		ui_print("SYSTEM:\t%s\n",fst);
-		fst = get_fs_type("DATA:");
+		fst = (char *)get_fs_type("DATA:");
 		ui_print("DATA:\t%s\n",fst);
-		fst = get_fs_type("CACHE:");
+		fst = (char *)get_fs_type("CACHE:");
 		ui_print("CACHE:\t%s\n",fst);
+	ui_print("\n\n");
     
     get_args(&argc, &argv);
 
@@ -1542,26 +1660,31 @@ int
     } else {
         status = INSTALL_ERROR;  // No command specified
     }
-
+	char ret=1;
     if (status != INSTALL_SUCCESS) ui_set_background(BACKGROUND_ICON_ERROR);
-    if (status != INSTALL_SUCCESS /* || ui_text_visible() */ ) prompt_and_wait();
+    if (status != INSTALL_SUCCESS /* || ui_text_visible() */ ) ret=pre_menu();
+    
+    /*On error, or if choosed, show recovery*/
+    if ( ret ) prompt_and_wait();
 
     // If there is a radio image pending, reboot now to install it.
     // maybe_install_firmware_update(send_intent);
 
     // Otherwise, get ready to boot the main system...
-    sync();
-    finish_recovery(send_intent);
-    if (!reboot_method) reboot(RB_POWER_OFF);
-    else if (do_reboot)
-    {
-    	ui_print("Rebooting...\n");
-	sync();
-    	reboot(RB_AUTOBOOT);
-    }
+    if (do_reboot) {
+		sync();
+		finish_recovery(send_intent);
+		if (!reboot_method) reboot(RB_POWER_OFF);
+		else 
+		{
+			ui_print("Rebooting...\n");
+		sync();
+			reboot(RB_AUTOBOOT);
+		}
 
-    tcflush(STDIN_FILENO, TCIOFLUSH);
-    tcflow(STDIN_FILENO, TCOON);
+		tcflush(STDIN_FILENO, TCIOFLUSH);
+		tcflow(STDIN_FILENO, TCOON);
+	}
 
     return EXIT_SUCCESS;
 }
