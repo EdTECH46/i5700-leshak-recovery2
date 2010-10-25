@@ -122,6 +122,7 @@ static const int MAX_ARGS = 100;
 
 static int do_reboot = 1;
 static int reboot_method = 1;
+static int multi = 0;
 char os[50];
 
 // open a file given in root:path format, mounting partitions as necessary
@@ -1162,19 +1163,19 @@ static void recovery_boot() {
 }
 
 
-static void init_os (char** items) {
-	if ( !strlen(os) ) {
-				ui_print("You can't start internal os from here!\n");
-				return;
-			}
-	items[9]=calloc(70,sizeof(char));
-    strcpy(items[9],"Boot ");
-    strcat(items[9],os);
-    strcat(items[9]," ->");
-    
+static void init_os (char** items,int boot) {    
     ensure_root_path_unmounted("SYSTEM:");
     ensure_root_path_unmounted("DATA:");
     ensure_root_path_mounted("SDCARD:");
+    
+    if ( !strlen(os) ) {
+				RootInfo* info=get_info("SYSTEM:");
+				info->device="/dev/stl6";
+				
+				info=get_info("DATA:");
+				info->device="/dev/stl5";
+				return;
+			}
     
     RootInfo* info=get_info("SYSTEM:");
     char* filename=malloc(100*sizeof(char));
@@ -1190,7 +1191,10 @@ static void init_os (char** items) {
     strcat(filename,"/data.img");
     info->device=filename;
     
-    recheck();
+    items[boot]=calloc(70,sizeof(char));
+    strcpy(items[boot],"Boot ");
+    strcat(items[boot],os);
+    strcat(items[boot]," ->");
     
 				char *args[] = {"/xbin/mknod", "/dev/loop0", "b", "7", "0", NULL};          
 				pid_t pid = fork();
@@ -1223,9 +1227,17 @@ static void init_os (char** items) {
 static void
         prompt_and_wait()
 {
-    static char* headers[] = { 	"Android system recovery <"
+	char* current;
+	if ( strlen(os) ) {
+		current=calloc(60,sizeof(char));
+		strcpy(current,"     OS: ");
+		strcat(current,os);
+	} else current = "     OS: Internal";
+    char* headers[] = { 	"Android system recovery <"
             	              	EXPAND(RECOVERY_API_VERSION) ">",
                                 "   -- Samsung Spica i5700 --",
+                                "",
+                                current,
                                 "",
                                 "Use Up/Down and OK to select",
                                 "",
@@ -1241,8 +1253,8 @@ static void
 #define ITEM_WIPE_DATA     6
 #define ITEM_PARTED        7
 #define ITEM_MOUNT         8
-#define ITEM_CHOOSE_OS     9
-#define ITEM_RESTORE       10
+#define ITEM_BACK          9
+#define ITEM_CHOOSE_OS     10
 #define ITEM_FSCK          11
 
 
@@ -1256,12 +1268,17 @@ static void
                              "Partition sdcard ->",
                              "Mount ->",
                              NULL,
+                             NULL,
                              NULL };
                              
-	if ( strlen(os) ) init_os(items);
+	init_os(items,ITEM_CHOOSE_OS);  //Set the pointers to the actual device/image
+	
+	recheck();  //We should recheck the Filesystems.
+	
+	if ( multi ) items[ITEM_BACK] = "Choose another OS ->";
 	
 	/*FS INFO*/
-    ui_print("Filesystems:\n");
+    ui_print("%s Filesystems:\n",os);
 		char * fst = (char *)get_fs_type("SYSTEM:");
 		ui_print("SYSTEM:\t%s\n",fst);
 		fst = (char *)get_fs_type("DATA:");
@@ -1333,13 +1350,18 @@ static void
                 if (!ui_text_visible()) return;*/
                 start_os();
                 break;
+            case ITEM_BACK:
+				do_reboot=0;
+				return;
 
             case ITEM_REBOOT:
 				reboot_method=1;
+				do_reboot=1;
                 return;
                 
             case ITEM_HALT:
 				reboot_method=0;
+				do_reboot=1;
 				return;
 
             case ITEM_PARTED:
@@ -1419,45 +1441,6 @@ static void
                         ui_print("Backup complete!\nUse Odin for restore\n\n");
                     }
                 }
-                break;
-
-                case ITEM_RESTORE:
-                ui_print("\n-- Restore latest backup");
-                ui_print("\n-- Press HOME to confirm, or");
-                ui_print("\n-- any other key to abort.");
-                int confirm_restore = ui_wait_key();
-                if (confirm_restore == KEY_DREAM_HOME) {
-                    ui_print("\n");
-                    if (ensure_root_path_mounted("SDCARD:") != 0) {
-                        ui_print("Can't mount sdcard, aborting.\n");
-                    } else {
-                        ui_print("Restoring latest backup");
-                        pid_t pid = fork();
-                        if (pid == 0) {
-                            char *args[] = {"/sbin/sh", "-c", "/sbin/nandroid-mobile.sh restore", "1>&2", NULL};
-                            execv("/sbin/sh", args);
-                            fprintf(stderr, "Can't run nandroid-mobile.sh\n(%s)\n", strerror(errno));
-                            _exit(-1);
-                        }
-
-                        int status3;
-
-                        while (waitpid(pid, &status3, WNOHANG) == 0) {
-                            ui_print(".");
-                            sleep(1);
-                        }
-                        ui_print("\n");
-
-                        if (!WIFEXITED(status3) || (WEXITSTATUS(status3) != 0)) {
-                            ui_print("Error performing restore!  Try running 'nandroid-mobile.sh restore' from console.\n\n");
-                        } else {
-                            ui_print("Restore complete!\n\n");
-                        }
-                    }
-                } else {
-                    ui_print("Restore complete!\n\n");
-                }
-                if (!ui_text_visible()) return;
                 break;
 
                 case ITEM_FSCK:
@@ -1572,23 +1555,9 @@ static char
 
     // these constants correspond to elements of the items[] list.
 #define ITEM_RECOVERY      0
-	//rest a bit, to let FS's detected properly
-	sleep(3);
-	ui_clear_key_queue();
+
 	if (ensure_root_path_mounted("SDCARD:")) {
-		LOGE("BL: Cant' mount SDCARD");
-		return 1;
-	}
-    if (ensure_root_path_unmounted("SYSTEM:")) {
-		LOGE("BL: Cant' unmount SYSTEM");
-		return 1;
-	}
-	if (ensure_root_path_unmounted("DATA:")){
-		LOGE("BL: Cant' unmount SYSTEM");
-		return 1;
-	}
-	if (ensure_root_path_unmounted("CACHE:")){
-		LOGE("BL: Cant' unmount SYSTEM");
+		LOGE("BL: Cant' mount SDCARD\n");
 		return 1;
 	}
 
@@ -1624,14 +1593,39 @@ static char
 		}
         list[i-1]=NULL;
         fclose(f);
-        ui_clear_key_queue();
-		ui_start_menu(headers, list);
+        
+    if ( i > ITEM_RECOVERY+1) multi=1;
+    else return 1;
 
-    int selected = 0;
-    int chosen_item = -1;
-    int err = 0;
+    int selected;
+    int chosen_item;
+    int err;
+    int init = 1;
 
     for (;;) {
+		if (init) {
+			//rest a bit, to let FS's detected properly
+			sleep(3);
+			ui_clear_key_queue();
+			if (ensure_root_path_unmounted("SYSTEM:")) {
+				LOGE("BL: Cant' unmount SYSTEM\n");
+				return 1;
+			}
+			if (ensure_root_path_unmounted("DATA:")){
+				LOGE("BL: Cant' unmount SYSTEM\n");
+				return 1;
+			}
+			if (ensure_root_path_unmounted("CACHE:")){
+				LOGE("BL: Cant' unmount SYSTEM\n");
+				return 1;
+			}
+			ui_clear_key_queue();
+			init=0;
+			selected = 0;
+			chosen_item = -1;
+			err = 0;
+			ui_start_menu(headers, list);
+		}
         int key = ui_wait_key();
 
         //---- get key code for spica
@@ -1655,11 +1649,12 @@ static char
         if (chosen_item >= ITEM_RECOVERY) {
             // turn off the menu, letting ui_print() to scroll output
             // on the screen.
-            if (chosen_item > ITEM_RECOVERY) {
-				strcpy(os,&(list[chosen_item][6]));
-			}
-            ui_end_menu();
-            break;
+            if (chosen_item > ITEM_RECOVERY) strcpy(os,&(list[chosen_item][6]));
+			else os[0]='\0';
+			ui_end_menu();
+			prompt_and_wait();
+			if (do_reboot) return 0;
+			else init=1;
 		}
 	}
 return 1;
