@@ -1207,7 +1207,6 @@ static void init_os (char** items,int boot) {
 
 				while (waitpid(pid, &status, WNOHANG) == 0) {
 					sleep(1);
-					ui_print(".");
 				}
 				
 				char *args2[] = {"/xbin/mknod", "/dev/loop1", "b", "7", "1", NULL};          
@@ -1220,7 +1219,6 @@ static void init_os (char** items,int boot) {
 
 				while (waitpid(pid, &status, WNOHANG) == 0) {
 					sleep(1);
-					ui_print(".");
 				}
 }
 
@@ -1275,16 +1273,16 @@ static void
 	
 	recheck();  //We should recheck the Filesystems.
 	
-	if ( multi ) items[ITEM_BACK] = "Choose another OS ->";
+	if ( multi ) items[ITEM_BACK] = "<- Choose another OS";
 	
 	/*FS INFO*/
     ui_print("%s Filesystems:\n",os);
 		char * fst = (char *)get_fs_type("SYSTEM:");
-		ui_print("SYSTEM:\t%s\n",fst);
+		ui_print(" SYSTEM:\t%s\n",fst);
 		fst = (char *)get_fs_type("DATA:");
-		ui_print("DATA:\t%s\n",fst);
+		ui_print(" DATA:\t%s\n",fst);
 		fst = (char *)get_fs_type("CACHE:");
-		ui_print("CACHE:\t%s\n",fst);
+		ui_print(" CACHE:\t%s\n",fst);
 	ui_print("\n\n");
     
     
