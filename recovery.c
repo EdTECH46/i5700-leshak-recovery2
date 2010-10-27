@@ -1274,6 +1274,7 @@ static void
 	recheck();  //We should recheck the Filesystems.
 	
 	if ( multi ) items[ITEM_BACK] = "<- Choose another OS";
+	else items[ITEM_BACK] = "<- Recheck Filesystems";
 	
 	/*FS INFO*/
     ui_print("%s Filesystems:\n",os);
@@ -1554,54 +1555,61 @@ static char
     // these constants correspond to elements of the items[] list.
 #define ITEM_RECOVERY      0
 
-	if (ensure_root_path_mounted("SDCARD:")) {
-		LOGE("BL: Cant' mount SDCARD\n");
-		return 1;
-	}
-
-    static char* list[20];
-    list[ITEM_RECOVERY]="Start Internal";
-	static char* prefix="Start ";
-
-    FILE* f = fopen("/sdcard/.bootlst", "r");
-    if (f == NULL) {
-        return 1;
-    }
-		int i=ITEM_RECOVERY+1;
-		while(!feof(f))
-		{
-			char* temp=calloc(50,sizeof(char));
-			list[i]=malloc(50 * sizeof(char));
-			fgets(temp,50,f);
-			int j=0;
-			for(j=0;j<50;j++) {
-				if(temp[j] == '\n' || temp[j] == '\r') {
-					temp[j]='\0';
-					break;
-				}
-			}
-			int x;
-			for (x=0;x<i;x++)
-				if (!strcmp(&(list[x][6]),temp)) break;
-			if ( i == x ) {
-				strcpy(list[i],prefix);
-				strncpy(&(list[i][6]),temp,42); 
-				i++;
-			}
-		}
-        list[i-1]=NULL;
-        fclose(f);
-        
-    if ( i > ITEM_RECOVERY+1) multi=1;
-    else return 1;
-
+	static char* list[20];
     int selected;
     int chosen_item;
     int err;
     int init = 1;
-
+	
+	list[0]=NULL;
+	
     for (;;) {
-		if (init) {
+		if (init) {		
+			if (ensure_root_path_mounted("SDCARD:")) {
+				LOGE("BL: Cant' mount SDCARD\n");
+				return 1;
+			}
+			int i;
+			for (i=0; list[i] != NULL; i++) {
+				free(list[i]);
+			}
+			list[0]=NULL;
+			
+			FILE* f = fopen("/sdcard/.bootlst", "r");
+			if (f == NULL) {
+				return 1;
+			}
+				list[ITEM_RECOVERY]="Start Internal";
+				static char* prefix="Start ";
+				i=ITEM_RECOVERY+1;
+				while(!feof(f))
+				{
+					char* temp=calloc(50,sizeof(char));
+					list[i]=malloc(50 * sizeof(char));
+					fgets(temp,50,f);
+					int j=0;
+					for(j=0;j<50;j++) {
+						if(temp[j] == '\n' || temp[j] == '\r') {
+							temp[j]='\0';
+							break;
+						}
+					}
+					int x;
+					for (x=0;x<i;x++)
+						if (!strcmp(&(list[x][6]),temp)) break;
+					if ( i == x ) {
+						strcpy(list[i],prefix);
+						strncpy(&(list[i][6]),temp,42); 
+						i++;
+					}
+				}
+				list[i-1]=NULL;
+				fclose(f);				
+			if ( i > ITEM_RECOVERY+1) multi=1;
+			else {
+				multi=0;
+				return 1;
+			}
 			//rest a bit, to let FS's detected properly
 			sleep(3);
 			ui_clear_key_queue();
