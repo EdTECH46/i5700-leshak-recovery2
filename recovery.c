@@ -1569,6 +1569,12 @@ static char
 				LOGE("BL: Cant' mount SDCARD\n");
 				return 1;
 			}
+			//Give a chance to filesystems to unmount properly
+			ensure_root_path_unmounted("SYSTEM:");
+			ensure_root_path_unmounted("DATA:");
+			ensure_root_path_unmounted("CACHE:");
+			
+			
 			int i;
 			for (i=0; list[i] != NULL; i++) {
 				free(list[i]);
@@ -1610,9 +1616,8 @@ static char
 				multi=0;
 				return 1;
 			}
-			//rest a bit, to let FS's detected properly
+			//rest a bit, to let FS's to be detected and unmounted properly
 			sleep(3);
-			ui_clear_key_queue();
 			if (ensure_root_path_unmounted("SYSTEM:")) {
 				LOGE("BL: Cant' unmount SYSTEM\n");
 				return 1;
