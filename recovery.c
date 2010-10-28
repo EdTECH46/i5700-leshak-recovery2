@@ -177,7 +177,7 @@ static void
     if (*argc <= 1) {
         boot.recovery[sizeof(boot.recovery) - 1] = '\0';  // Ensure termination
         const char *arg = strtok(boot.recovery, "\n");
-        if (arg != NULL && !strcmp(arg, "recovery")) {
+        if (arg != NULL && !strcmp(arg, "/sbin/recovery")) {
             *argv = (char **) malloc(sizeof(char *) * MAX_ARGS);
             (*argv)[0] = strdup(arg);
             for (*argc = 1; *argc < MAX_ARGS; ++*argc) {
@@ -211,8 +211,9 @@ static void
 
     // --> write the arguments we have back into the bootloader control block
     // always boot into recovery after this (until finish_recovery() is called)
+    LOGI("get_args_end");
     strlcpy(boot.command, "boot-recovery", sizeof(boot.command));
-    strlcpy(boot.recovery, "recovery\n", sizeof(boot.recovery));
+    strlcpy(boot.recovery, "/sbin/recovery\n", sizeof(boot.recovery));
     int i;
     for (i = 1; i < *argc; ++i) {
         strlcat(boot.recovery, (*argv)[i], sizeof(boot.recovery));
@@ -270,32 +271,6 @@ static void
         translate_root_path(COMMAND_FILE, path, sizeof(path)) == NULL ||
         (unlink(path) && errno != ENOENT)) {
         LOGW("Can't unlink %s\n", COMMAND_FILE);
-    }
-
-    sync();  // For good measure.
-}
-
-static void
-        finish_recovery_reb(const char *send_intent)
-{
-
-    // Copy logs to cache so the system can find out what happened.
-    FILE *log = fopen_root_path(LOG_FILE, "a");
-    if (log == NULL) {
-        LOGE("Can't open %s\n", LOG_FILE);
-    } else {
-        FILE *tmplog = fopen(TEMPORARY_LOG_FILE, "r");
-        if (tmplog == NULL) {
-            LOGE("Can't open %s\n", TEMPORARY_LOG_FILE);
-        } else {
-            static long tmplog_offset = 0;
-            fseek(tmplog, tmplog_offset, SEEK_SET);  // Since last write
-            char buf[4096];
-            while (fgets(buf, sizeof(buf), tmplog)) fputs(buf, log);
-            tmplog_offset = ftell(tmplog);
-            check_and_fclose(tmplog, TEMPORARY_LOG_FILE);
-        }
-        check_and_fclose(log, LOG_FILE);
     }
 
     sync();  // For good measure.
@@ -1044,125 +1019,6 @@ static void
     }
 }
 
-static void choose_os()
-{
-    static char* headers[] = { "Choose OS to boot"
-                               "",
-                               "Use Up/Down and OK to select",
-                               "",
-                               NULL
-                             };
-
-    /* Reading boot list from sd card */
-
-    if (ensure_root_path_mounted("SDCARD:")) { ui_print("\nError mount sdcard\n"); return; }
-    if (ensure_root_path_mounted("CACHE:")) { ui_print("\nError mount cache\n"); return; }
-    if (ensure_root_path_unmounted("SYSTEM:")) { ui_print("\nError unmount system\n"); return; }
-	if (ensure_root_path_unmounted("DATA:")) { ui_print("\nError unmount data\n"); return; }
-    FILE* f = fopen("/sdcard/.bootlst","r");
-    if (f == NULL) {
-        ui_print("Can't open /sdcard/.bootlst\n");
-        return;
-    }
-    char* list[20];
-    list[0] = "Back to main menu";
-    int i=1;
-    while(!feof(f))
-    {
-		char* temp=malloc(50 * sizeof(char));
-        list[i]=malloc(50 * sizeof(char));
-        fgets(temp,50,f);
-        int j=0;
-        for(j=0;j<50;j++) {
-            if(temp[j] == '\n' || temp[j] == '\r') {
-                temp[j]='\0';
-                break;
-            }
-        }
-        int x;
-        for (x=0;x<i;x++)
-			if (!strcmp(list[x],temp)) break;
-		if ( i == x ) {
-			strcpy(list[i],temp); 
-			i++;
-		}
-    }
-    fclose(f);
-    list[i-1]=NULL;
-//    ui_print("\nReaded succesfull");
-
-    for (;;) {
-		if (ensure_root_path_unmounted("SYSTEM:")) { ui_print("\nError unmount system\n"); return; }
-		if (ensure_root_path_unmounted("DATA:")) { ui_print("\nError unmount data\n"); return; }
-    
-        int chosen_item = get_selected_item(headers, list);
-        if (chosen_item >= 0)
-        {
-            if(chosen_item == 0) { break; } /* "Back" choosed */
-            ui_print("INIT New OS...");
-            char* file_name;
-            char* dir_name;
-          
-                file_name = malloc(60 * sizeof(char));
-                strcpy(file_name,"/sdcard/");
-                strcat(file_name,list[chosen_item]);
-                dir_name = malloc( (strlen(file_name)+1)*sizeof(char) );
-                strcpy(dir_name,file_name);
-                strcat(file_name,"/init.sh");
-            
-			if (  ( f=fopen(file_name,"r") )  )	{
-				fclose(f); 
-				chdir(dir_name);
-				char *args[] = {"/xbin/ash", file_name, NULL};          
-				pid_t pid = fork();
-				if (pid == 0) {
-					execv("/xbin/ash", args);
-					fprintf(stderr, "E:Can't run %s\n(%s)\n",file_name, strerror(errno));
-					_exit(-1);
-					}
-				int status;
-
-				while (waitpid(pid, &status, WNOHANG) == 0) {
-					sleep(1);
-					ui_print(".");
-				}
-				ui_print("done\nBooting New OS..\nPlease wait...");
-				ui_end_menu();
-				struct bootloader_message boot;
-				memset(&boot, 0, sizeof(boot));
-				set_bootloader_message(&boot);
-				args[0]=NULL;
-				pid = fork();
-				if (pid == 0) {
-					execv("/init_new", args);
-					_exit(-1);
-					}
-				while (waitpid(pid, &status, WNOHANG) == 0) {
-					sleep(900);
-					ui_print("\nSomething went wrong :(\nPlease pull the battery out and reboot!");
-				}
-				do_reboot=0;
-			}
-			else {
-				ui_print("\n%s not exists!",file_name);
-			}
-			free(dir_name);
-			free(file_name);
-		}
-    }
-}
-
-static void recovery_boot() {
-	struct bootloader_message boot;
-    memset(&boot, 0, sizeof(boot));
-    get_bootloader_message(&boot);  // this may fail, leaving a zeroed structure
-	strlcpy(boot.command, "boot-recovery", sizeof(boot.command));
-    strlcpy(boot.recovery, "recovery\n", sizeof(boot.recovery));
-    set_bootloader_message(&boot);
-    sync();
-}
-
-
 static void init_os (char** items,int boot) {    
     ensure_root_path_unmounted("SYSTEM:");
     ensure_root_path_unmounted("DATA:");
@@ -1222,6 +1078,68 @@ static void init_os (char** items,int boot) {
 				}
 }
 
+static void end_recovery() {
+	static char* headers[] = { 	"Choose a method"
+                                "",
+                                "Use Up/Down and OK to select",
+                                "",
+                                NULL };
+
+#define HALT_BACK	 		0
+#define HALT_REBOOT		 	1
+#define HALT_HALT			2
+#define HALT_RECOVERY 		3
+
+    static char* items[] = { 	"Back to main menu",
+                                "Reboot to system",
+                                "Shut down",
+                                //"Reboot to recovery",
+                                NULL };
+
+
+    ui_start_menu(headers, items);
+    int selected = 0;
+    int chosen_item = -1;
+    
+    for (;;) {
+		int key = ui_wait_key();
+        int visible = ui_text_visible();
+
+
+        if (key == KEY_DREAM_BACK) {
+            break;
+        } else if ((key == KEY_DOWN || key == KEY_VOLUMEDOWN || key == KEY_I5700_DOWN) && visible) {
+            ++selected;
+            selected = ui_menu_select(selected);
+        } else if ((key == KEY_UP || key == KEY_VOLUMEUP || key == KEY_I5700_UP) && visible) {
+            --selected;
+            selected = ui_menu_select(selected);
+        } else if ((key == BTN_MOUSE || key == KEY_I5700_CENTER) && visible) {
+            chosen_item = selected;
+        }
+        
+        switch (chosen_item) {
+			case HALT_BACK:
+				do_reboot=0;
+				return;
+			case HALT_REBOOT:
+				do_reboot=1;
+				reboot_method=1;
+				return;
+			case HALT_RECOVERY:
+				ensure_root_path_mounted("CACHE:");
+				do_reboot=1;
+				reboot_method=2;
+				return;
+			case HALT_HALT:
+				do_reboot=1;
+				reboot_method=0;
+				return;
+			}
+		}
+}
+		
+
 static void
         prompt_and_wait()
 {
@@ -1242,22 +1160,20 @@ static void
                                 NULL };
 
     // these constants correspond to elements of the items[] list.
-#define ITEM_REBOOT        0
-#define ITEM_HALT		   1
-#define ITEM_APPLY_UPDATE  2
-#define ITEM_APPLY_ANYZIP  3
-#define ITEM_SAMDROID      4
-#define ITEM_TAR_BACKUP    5
-#define ITEM_WIPE_DATA     6
-#define ITEM_PARTED        7
-#define ITEM_MOUNT         8
-#define ITEM_BACK          9
-#define ITEM_CHOOSE_OS     10
-#define ITEM_FSCK          11
+#define ITEM_END	       0
+#define ITEM_APPLY_UPDATE  1
+#define ITEM_APPLY_ANYZIP  2
+#define ITEM_SAMDROID      3
+#define ITEM_TAR_BACKUP    4
+#define ITEM_WIPE_DATA     5
+#define ITEM_PARTED        6
+#define ITEM_MOUNT         7
+#define ITEM_BACK          8
+#define ITEM_CHOOSE_OS     9
+#define ITEM_FSCK          10
 
 
-    char* items[] = { "Reboot system now [Home+Back]",
-							 "Shut down now",
+    char* items[] = { "Leave Recovery [Home+Back]",
                              "Apply sdcard/update.zip",
                              "Apply any zip from SD",
                              "Samdroid v0.2.1 backup (4 Odin)",
@@ -1327,7 +1243,7 @@ static void
                    ui_key_pressed(KEY_DREAM_HOME)) {
                 usleep(1000);
             }
-            chosen_item = ITEM_REBOOT;
+            chosen_item = ITEM_END;
         } else if ((key == KEY_DOWN || key == KEY_VOLUMEDOWN || key == KEY_I5700_DOWN) && visible) {
             ++selected;
             selected = ui_menu_select(selected);
@@ -1353,16 +1269,12 @@ static void
 				do_reboot=0;
 				return;
 
-            case ITEM_REBOOT:
-				reboot_method=1;
-				do_reboot=1;
-                return;
+            case ITEM_END:
+				do_reboot=0;
+				end_recovery();
+				if (do_reboot) return;
+                else break;
                 
-            case ITEM_HALT:
-				reboot_method=0;
-				do_reboot=1;
-				return;
-
             case ITEM_PARTED:
                 choose_sdparted_type();
                 if (!ui_text_visible()) return;
@@ -1475,7 +1387,7 @@ static void
             selected = 0;
             chosen_item = -1;
 
-            finish_recovery(NULL);
+            //finish_recovery(NULL); //Removed for Recovery Reboot
             ui_reset_progress();
 
             // throw away keys pressed while the command was running,
@@ -1526,10 +1438,6 @@ void start_os() {
 				set_bootloader_message(&boot);
 				args[0]=NULL;
 				execv("/init_new", args);
-				/*while (waitpid(pid, &status, WNOHANG) == 0) {
-					sleep(60);
-					ui_print("\nSomething went wrong :(\nPlease pull the battery out and reboot!");
-				}*/
 				do_reboot=0;
 			}
 			else {
@@ -1562,6 +1470,9 @@ static char
     int init = 1;
 	
 	list[0]=NULL;
+	
+	//In case if something goes wrong
+	finish_recovery(NULL);
 	
     for (;;) {
 		if (init) {		
@@ -1605,12 +1516,12 @@ static char
 						if (!strcmp(&(list[x][6]),temp)) break;
 					if ( i == x ) {
 						strcpy(list[i],prefix);
-						strncpy(&(list[i][6]),temp,42); 
+						strncpy(&(list[i][6]),temp,42);
 						i++;
 					}
 				}
 				list[i-1]=NULL;
-				fclose(f);				
+				fclose(f);
 			if ( i > ITEM_RECOVERY+1) multi=1;
 			else {
 				multi=0;
@@ -1636,6 +1547,20 @@ static char
 			chosen_item = -1;
 			err = 0;
 			ui_start_menu(headers, list);
+			
+			//Write back the filtered list while the user chooses	
+			pid_t pid = fork();
+			if ( pid == 0 )	{
+				f = fopen("/sdcard/.bootlst","w");
+				if ( f != NULL ) {
+					for (i=0; list[i] != NULL; i++ ) {
+						fputs(&(list[i][6]),f);
+						fputc('\n',f);
+					}
+					check_and_fclose(f,"/sdcard/.bootlst");
+				}
+				_exit(-1);
+			}
 		}
         int key = ui_wait_key();
 
@@ -1697,10 +1622,20 @@ int
     ui_print(prop_value);
     ui_print("\n  by LeshaK (forum.samdroid.net)");
     ui_print("\n  modified by antibyte & Xmister");
-    ui_print("\n  version 0.6\n\n");
+    ui_print("\n  version 0.8\n\n");
     
-    
+    int x;
+    LOGI("main commands:\n");
+    for (x=0; x<argc; x++) {
+		LOGI(" %s\n",argv[x]);
+	}
+	LOGI("\n");
     get_args(&argc, &argv);
+    LOGI("Boot commands:\n");
+    for (x=0; x<argc; x++) {
+		LOGI(" %s\n",argv[x]);
+	}
+	LOGI("\n");
 
     int previous_runs = 0;
     const char *send_intent = NULL;
@@ -1764,12 +1699,31 @@ int
     // Otherwise, get ready to boot the main system...
     if (do_reboot) {
 		sync();
-		finish_recovery(send_intent);
-		if (!reboot_method) reboot(RB_POWER_OFF);
+		if ( reboot_method < 2 )finish_recovery(send_intent);
+		else {
+			get_args(&argc,&argv);
+			LOGI("Boot commands:\n");
+			for (x=0; x<argc; x++) {
+				LOGI(" %s\n",argv[x]);
+			}
+			LOGI("\n");
+			FILE* f=fopen(COMMAND_FILE,"w");
+			if ( f != NULL ) {
+				fputs("/sbin/recovery\n",f);
+				check_and_fclose(f,COMMAND_FILE);
+			}
+			else LOGE("Can't open command file\n");
+		}
+			
+		if (!reboot_method) {
+			ui_print("Shutting down...\n");
+			sync();
+			reboot(RB_POWER_OFF);
+		}
 		else 
 		{
 			ui_print("Rebooting...\n");
-		sync();
+			sync();
 			reboot(RB_AUTOBOOT);
 		}
 
