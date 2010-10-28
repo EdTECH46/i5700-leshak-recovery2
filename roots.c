@@ -478,21 +478,22 @@ format_root_device(const char *root)
         pid_t pid = fork();
 	 if (pid == 0) {
 	     if (info->filesystem != NULL && strncmp(info->filesystem, "ext",3) == 0) {
-                char fst[10]="-t";
-                strcat(fst,info->filesystem);
+                char fst[10];
+                sprintf(fst,"-T %s",info->filesystem);
 	         LOGW("format: %s as %s\n", info->device, fst);
                 if (strncmp(info->filesystem, "ext4",4) == 0) {
-                   char *args[] = {"/xbin/mke2fs", &fst, "-b4096", "-F", "-q", "-m0", "-O^huge_file,extent", info->device, NULL};
+					///xbin/mke2fs -T ext4 -F -q -m 0 -b 4096 -O ^huge_file,extent /sdcard/cm6/data.img
+                   char* args[] = {"/xbin/mke2fs", fst, "-F", "-q", "-m 0", "-b 4096", "-O ^huge_file,extent", info->device, NULL};
                    execv("/xbin/mke2fs", args);
                 } else {
-                   char *args[] = {"/xbin/mke2fs", &fst, "-b4096", "-F", "-q", "-m0", info->device, NULL};
+                   char* args[] = {"/xbin/mke2fs", fst, "-F", "-q", "-m 0", "-b 4096", info->device, NULL};
                    execv("/xbin/mke2fs", args);
                 }
-                fprintf(stderr, "E:Can't run mke2fs format [%s]\n", strerror(errno));       
+                LOGE("E:Can't run mke2fs format [%s]\n", strerror(errno));       
 	     } 
 	     else if (info->filesystem != NULL && strcmp(info->filesystem, "rfs")==0){
 	          LOGW("format: %s as rfs\n", info->device);
-                 char *args[] = {"/xbin/stl.format", info->device, NULL};
+                 char* args[] = {"/xbin/stl.format", info->device, NULL};
                  execv("/xbin/stl.format", args);
                  fprintf(stderr, "E:Can't run STL format [%s]\n", strerror(errno));
             }
