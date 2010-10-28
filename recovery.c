@@ -1127,7 +1127,6 @@ static void end_recovery() {
 				reboot_method=1;
 				return;
 			case HALT_RECOVERY:
-				ensure_root_path_mounted("CACHE:");
 				do_reboot=1;
 				reboot_method=2;
 				return;
@@ -1701,18 +1700,8 @@ int
 		sync();
 		if ( reboot_method < 2 )finish_recovery(send_intent);
 		else {
-			get_args(&argc,&argv);
-			LOGI("Boot commands:\n");
-			for (x=0; x<argc; x++) {
-				LOGI(" %s\n",argv[x]);
-			}
-			LOGI("\n");
-			FILE* f=fopen(COMMAND_FILE,"w");
-			if ( f != NULL ) {
-				fputs("/sbin/recovery\n",f);
-				check_and_fclose(f,COMMAND_FILE);
-			}
-			else LOGE("Can't open command file\n");
+			system("/xbin/reboot recovery");
+			return EXIT_SUCCESS;
 		}
 			
 		if (!reboot_method) {
