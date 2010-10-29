@@ -86,6 +86,26 @@ internal_root_mounted(const RootInfo *info)
     return -1;
 }
 
+static void check_fs() {
+	LOGI("Checking FS types\n");
+	int i;
+	RootInfo *info;
+       for (i = 1 ;i < 4 ;i++){
+          info = &g_roots[i];
+		  if(!chdir(info->mount_point)){
+       	    mkdir(info->mount_point, 0755);  // in case it doesn't already exist
+          } else chdir("/");
+          if ( !strncmp(info->device,"/sdcard/",8) ) {
+			  strcpy(info->filesystem,"ext4");
+		  } else {		  
+			  memset(info->filesystem,0,5);
+			  if ( !mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext2\0",5);
+			  else if ( !mount(info->device, info->mount_point, "ext4", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext4\0",5);
+			  else memcpy(info->filesystem,"rfs\0",4);	 
+		  }
+       }
+ }
+
 static const RootInfo *
 get_root_info_for_path(const char *root_path)
 {
@@ -107,21 +127,7 @@ get_root_info_for_path(const char *root_path)
     MountedVolume *volume;
 
     if (check_fstype) {
-       LOGI("Checking FS types\n");
-       for (i = 1 ;i < 4 ;i++){
-          info = &g_roots[i];
-		  if(!chdir(info->mount_point)){
-       	    mkdir(info->mount_point, 0755);  // in case it doesn't already exist
-          } else chdir("/");
-          if (strstr(info->device,"/sdcard/") != NULL ) {
-			  strcpy(info->filesystem,"ext4");
-		  } else {		  
-			  memset(info->filesystem,0,5);
-			  if ( !mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext2\0",5);
-			  else if ( !mount(info->device, info->mount_point, "ext4", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext4\0",5);
-			  else memcpy(info->filesystem,"rfs\0",4);	 
-		  }
-       }
+       check_fs();
     check_fstype = 0;
     }
 
@@ -156,21 +162,7 @@ RootInfo * get_info(const char *root_path)
     MountedVolume *volume;
 
     if (check_fstype) {
-       LOGI("Checking FS types\n");
-       for (i = 1 ;i < 4 ;i++){
-          info = &g_roots[i];
-		  if(!chdir(info->mount_point)){
-       	    mkdir(info->mount_point, 0755);  // in case it doesn't already exist
-          } else chdir("/");
-          if (strstr(info->device,"/sdcard/") != NULL ) {
-			  strcpy(info->filesystem,"ext4");
-		  } else {		  
-			  memset(info->filesystem,0,5);
-			  if ( !mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext2\0",5);
-			  else if ( !mount(info->device, info->mount_point, "ext4", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext4\0",5);
-			  else memcpy(info->filesystem,"rfs\0",4);	 
-		  }
-       }
+       check_fs();
     check_fstype = 0;
     }
 
@@ -363,24 +355,22 @@ ensure_root_path_mounted(const char *root_path)
         else {
             chdir("/");
         }
-        if ( (strstr(info->device,"/sdcard/") != NULL) && (strstr(info->device,"mmcblk") == NULL ) ) {
+        if ( !(strncmp(info->device,"/sdcard/",8) ) ) {
 			char *args[] = {"/xbin/mount", "-t", info->filesystem, "-o", "loop,rw,noatime,nodiratime,nosuid,nodev,data=ordered,barrier=1", info->device, info->mount_point, NULL};          
-				pid_t pid = fork();
-				if (pid == 0) {
-					execv("/xbin/mount", args);
-					fprintf(stderr, "E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
-					_exit(-1);
-					}
-				int status;
-
-				while (waitpid(pid, &status, WNOHANG) == 0) {
-					sleep(1);
-				}
-			return -1;
+			if ( execv("/xbin/mount", args) ) {
+				LOGE("E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+				return -1;
+			}
 	   } else if ( strncmp(info->filesystem,"rfs",3) != 0 ){
-           if (mount(info->device, info->mount_point, info->filesystem, MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)){
-	       LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));
-	       return -1;
+		   if ( !strncmp(info->filesystem,"auto",4) ) {
+				char *args[] = {"/xbin/mount", "-t", info->filesystem, info->device, info->mount_point, NULL};          
+				if ( execv("/xbin/mount", args) ) {
+					LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));	
+					return -1;
+				}
+			} else	if (mount(info->device, info->mount_point, info->filesystem, MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)){
+				LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));
+				return -1;
            }               
         } else {
            if (mount(info->device, info->mount_point, "rfs", MS_NODEV | MS_NOSUID, "codepage=utf8,xattr,check=no")){
@@ -480,8 +470,15 @@ format_root_device(const char *root)
 	     if (info->filesystem != NULL && strncmp(info->filesystem, "ext",3) == 0) {
                 char fst[10];
                 sprintf(fst,"-T %s",info->filesystem);
+                //We should create /etc/mtab
+					struct stat st;
+					if(stat("/etc",&st)) {
+						mkdir("/etc",0777);
+					}
+					FILE* f=fopen("/etc/mtab","w");
+					if ( f != NULL ) fclose(f);
 	         LOGW("format: %s as %s\n", info->device, fst);
-                if (strncmp(info->filesystem, "ext4",4) == 0) {
+                if (strncmp(info->filesystem, "ext4",4) == 0) {					
 					///xbin/mke2fs -T ext4 -F -q -m 0 -b 4096 -O ^huge_file,extent /sdcard/cm6/data.img
                    char* args[] = {"/xbin/mke2fs", fst, "-F", "-q", "-m 0", "-b 4096", "-O ^huge_file,extent", info->device, NULL};
                    execv("/xbin/mke2fs", args);
@@ -497,6 +494,13 @@ format_root_device(const char *root)
                  execv("/xbin/stl.format", args);
                  fprintf(stderr, "E:Can't run STL format [%s]\n", strerror(errno));
             }
+         else {
+			 //We couldn't detect FS, so formatting as default RFS
+			 LOGW("Fallback format: %s as rfs\n", info->device);
+                 char* args[] = {"/xbin/stl.format", info->device, NULL};
+                 execv("/xbin/stl.format", args);
+                 fprintf(stderr, "E:Can't run STL format [%s]\n", strerror(errno));
+			}
         _exit(-1);
 	 }
 	 
