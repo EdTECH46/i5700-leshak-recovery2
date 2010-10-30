@@ -355,29 +355,46 @@ ensure_root_path_mounted(const char *root_path)
         else {
             chdir("/");
         }
+        //ui_print("%s %s\n",info->name,info->filesystem);
         if ( !(strncmp(info->device,"/sdcard/",8) ) ) {
+			LOGI("Mounting %s as %s",info->name,"ext4 image");
 			char *args[] = {"/xbin/mount", "-t", info->filesystem, "-o", "loop,rw,noatime,nodiratime,nosuid,nodev,data=ordered,barrier=1", info->device, info->mount_point, NULL};          
-			if ( execv("/xbin/mount", args) ) {
-				LOGE("E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
-				return -1;
-			}
+			execv("/xbin/mount", args);
+			LOGE("E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
 	   } else if ( strncmp(info->filesystem,"rfs",3) != 0 ){
-		   if ( !strncmp(info->filesystem,"auto",4) ) {
-				char *args[] = {"/xbin/mount", "-t", info->filesystem, info->device, info->mount_point, NULL};          
-				if ( execv("/xbin/mount", args) ) {
-					LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));	
+		   if ( !strncmp(info->filesystem,"ext2",4) ) {
+			   //ui_print("ext2\n");
+				LOGI("Mounting %s as %s",info->name,"ext2");
+				if (mount(info->device, info->mount_point, info->filesystem, MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)){
+					LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));
 					return -1;
 				}
-			} else	if (mount(info->device, info->mount_point, info->filesystem, MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)){
-				LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));
-				return -1;
-           }               
+			} else if ( !strncmp(info->filesystem,"ext4",4) ) {
+				LOGI("Mounting %s as %s",info->name,"ext4");
+				char *args[] = {"/xbin/mount", "-t", info->filesystem, "-o", "rw,noatime,nodiratime,nosuid,nodev,data=ordered,barrier=1", info->device, info->mount_point, NULL};          
+				execv("/xbin/mount", args);
+				LOGE("E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+			} else if ( !strncmp(info->filesystem,"auto",4) ) {
+				//ui_print("auto\n");
+				LOGE("E:Can't detect FS. Mounting as auto\n");
+				char *args[] = {"/xbin/mount", "-t", info->filesystem, info->device, info->mount_point, NULL};          
+				execv("/xbin/mount", args);
+				LOGE("E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+			}
+			else { //SD Card
+				LOGI("Mounting %s as %s",info->name,info->filesystem);
+				if (mount(info->device, info->mount_point, info->filesystem, MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)){
+					LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));
+					return -1;
+				}
+			}            
         } else {
+           LOGI("Mounting %s as %s",info->name,"rfs");
            if (mount(info->device, info->mount_point, "rfs", MS_NODEV | MS_NOSUID, "codepage=utf8,xattr,check=no")){
 	            if (info->device2 == NULL) {
 	                LOGE("Can't mount %s\n(%s)\n", info->device, strerror(errno));
 	                return -1;
-	            } else if (mount(info->device2, info->mount_point, info->filesystem, MS_NOATIME | MS_NODEV | MS_NODIRATIME | MS_NOATIME , NULL)) {
+	            } else if (mount(info->device2, info->mount_point, info->filesystem, MS_NOATIME | MS_NODEV | MS_NODIRATIME , NULL)) {
                    if(mount(info->device2, info->mount_point, "rfs", MS_NODEV | MS_NOSUID, "codepage=utf8,xattr,check=no")){
 	                    LOGE("Can't mount %s (or %s)\n(%s)\n",
 	                    info->device, info->device2, strerror(errno));
@@ -386,7 +403,13 @@ ensure_root_path_mounted(const char *root_path)
                 }
             }
         }
-    }
+    } else {
+		LOGE("E:Can't detect FS. Mounting as auto\n");
+		strcpy(info->filesystem,"auto");
+		char *args[] = {"/xbin/mount", "-t", info->filesystem, info->device, info->mount_point, NULL};          
+		execv("/xbin/mount", args);
+		LOGE("E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+	}
     return 0;
 }
 
