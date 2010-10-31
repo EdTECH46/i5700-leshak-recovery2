@@ -357,10 +357,20 @@ ensure_root_path_mounted(const char *root_path)
         }
         //ui_print("%s %s\n",info->name,info->filesystem);
         if ( !(strncmp(info->device,"/sdcard/",8) ) ) {
+			// /xbin/mount -t ext4 -o loop,rw,noatime,nodiratime,nosuid,nodev,data=ordered,barrier=1 /sdcard/eclair/system.img /system
 			LOGI("Mounting %s as %s",info->name,"ext4 image");
 			char *args[] = {"/xbin/mount", "-t", info->filesystem, "-o", "loop,rw,noatime,nodiratime,nosuid,nodev,data=ordered,barrier=1", info->device, info->mount_point, NULL};          
-			execv("/xbin/mount", args);
-			LOGE("E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+				pid_t pid = fork();
+				if (pid == 0) {
+					execv("/xbin/mount", args);
+					fprintf(stderr, "E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+					_exit(-1);
+					}
+				int status;
+
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(1);
+				}
 	   } else if ( strncmp(info->filesystem,"rfs",3) != 0 ){
 		   if ( !strncmp(info->filesystem,"ext2",4) ) {
 			   //ui_print("ext2\n");
@@ -372,14 +382,31 @@ ensure_root_path_mounted(const char *root_path)
 			} else if ( !strncmp(info->filesystem,"ext4",4) ) {
 				LOGI("Mounting %s as %s",info->name,"ext4");
 				char *args[] = {"/xbin/mount", "-t", info->filesystem, "-o", "rw,noatime,nodiratime,nosuid,nodev,data=ordered,barrier=1", info->device, info->mount_point, NULL};          
-				execv("/xbin/mount", args);
-				LOGE("E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+				pid_t pid = fork();
+				if (pid == 0) {
+					execv("/xbin/mount", args);
+					fprintf(stderr, "E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+					_exit(-1);
+					}
+				int status;
+
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(1);
+				}
 			} else if ( !strncmp(info->filesystem,"auto",4) ) {
 				//ui_print("auto\n");
-				LOGE("E:Can't detect FS. Mounting as auto\n");
-				char *args[] = {"/xbin/mount", "-t", info->filesystem, info->device, info->mount_point, NULL};          
-				execv("/xbin/mount", args);
-				LOGE("E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+				char *args[] = {"/xbin/mount", "-t", info->filesystem, "-o", "rw,noatime,nodiratime,nosuid,nodev", info->device, info->mount_point, NULL};          
+				pid_t pid = fork();
+				if (pid == 0) {
+					execv("/xbin/mount", args);
+					fprintf(stderr, "E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+					_exit(-1);
+					}
+				int status;
+
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(1);
+				}
 			}
 			else { //SD Card
 				LOGI("Mounting %s as %s",info->name,info->filesystem);
@@ -406,9 +433,18 @@ ensure_root_path_mounted(const char *root_path)
     } else {
 		LOGE("E:Can't detect FS. Mounting as auto\n");
 		strcpy(info->filesystem,"auto");
-		char *args[] = {"/xbin/mount", "-t", info->filesystem, info->device, info->mount_point, NULL};          
-		execv("/xbin/mount", args);
-		LOGE("E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+				char *args[] = {"/xbin/mount", "-t", info->filesystem, "-o", "rw,noatime,nodiratime,nosuid,nodev", info->device, info->mount_point, NULL};          
+				pid_t pid = fork();
+				if (pid == 0) {
+					execv("/xbin/mount", args);
+					fprintf(stderr, "E:Can't mount%s\n(%s)\n", info->device, strerror(errno));
+					_exit(-1);
+					}
+				int status;
+
+				while (waitpid(pid, &status, WNOHANG) == 0) {
+					sleep(1);
+				}
 	}
     return 0;
 }

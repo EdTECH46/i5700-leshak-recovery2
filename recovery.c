@@ -1034,17 +1034,13 @@ static void init_os (char** items,int boot) {
 			}
     
     RootInfo* info=get_info("SYSTEM:");
-    char* filename=malloc(100*sizeof(char));
-    strcpy(filename,"/sdcard/");
-    strcat(filename,os);
-    strcat(filename,"/system.img");
+    char* filename;
+    filename=calloc(50,sizeof(char));
+    sprintf(filename,"/sdcard/%s/system.img",os);
     info->device=filename;
     
     info=get_info("DATA:");
-    filename=malloc(100*sizeof(char));
-    strcpy(filename,"/sdcard/");
-    strcat(filename,os);
-    strcat(filename,"/data.img");
+    sprintf(filename,"/sdcard/%s/data.img",os);
     info->device=filename;
     
     items[boot]=calloc(70,sizeof(char));
@@ -1528,18 +1524,20 @@ static char
 			}
 			//rest a bit, to let FS's to be detected and unmounted properly
 			sleep(3);
+			int err=0;
 			if (ensure_root_path_unmounted("SYSTEM:")) {
 				LOGE("BL: Cant' unmount SYSTEM\n");
-				return 1;
+				err=1;
 			}
 			if (ensure_root_path_unmounted("DATA:")){
 				LOGE("BL: Cant' unmount SYSTEM\n");
-				return 1;
+				err=1;
 			}
 			if (ensure_root_path_unmounted("CACHE:")){
 				LOGE("BL: Cant' unmount SYSTEM\n");
-				return 1;
+				err=1;
 			}
+			if (err) return err;
 			ui_clear_key_queue();
 			init=0;
 			selected = 0;
@@ -1621,7 +1619,7 @@ int
     ui_print(prop_value);
     ui_print("\n  by LeshaK (forum.samdroid.net)");
     ui_print("\n  modified by antibyte & Xmister");
-    ui_print("\n  version 0.8\n\n");
+    ui_print("\n  version 0.9\n\n");
     
     int x;
     LOGI("main commands:\n");
