@@ -1493,6 +1493,7 @@ static char
 			
 			FILE* f = fopen("/sdcard/.bootlst", "r");
 			if (f == NULL) {
+				ui_print("\n");
 				return 1;
 			}
 				list[ITEM_RECOVERY]="Start Internal";
@@ -1629,19 +1630,6 @@ int
     ui_print("\n  modified by antibyte & Xmister");
     ui_print("\n  version 0.9\n\n");
     
-    int x;
-    LOGI("main commands:\n");
-    for (x=0; x<argc; x++) {
-		LOGI(" %s\n",argv[x]);
-	}
-	LOGI("\n");
-    get_args(&argc, &argv);
-    LOGI("Boot commands:\n");
-    for (x=0; x<argc; x++) {
-		LOGI(" %s\n",argv[x]);
-	}
-	LOGI("\n");
-
     int previous_runs = 0;
     const char *send_intent = NULL;
     const char *update_package = NULL;
