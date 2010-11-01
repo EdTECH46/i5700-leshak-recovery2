@@ -1469,8 +1469,10 @@ static char
 	//In case if something goes wrong
 	finish_recovery(NULL);
 	
+	
     for (;;) {
-		if (init) {		
+		if (init) {
+			ui_print("Loading. Please wait...");
 			if (ensure_root_path_mounted("SDCARD:")) {
 				LOGE("BL: Cant' mount SDCARD\n");
 				return 1;
@@ -1486,6 +1488,8 @@ static char
 				free(list[i]);
 			}
 			list[0]=NULL;
+			
+			ui_print(".");
 			
 			FILE* f = fopen("/sdcard/.bootlst", "r");
 			if (f == NULL) {
@@ -1522,8 +1526,10 @@ static char
 				multi=0;
 				return 1;
 			}
+			ui_print(".");
 			//rest a bit, to let FS's to be detected and unmounted properly
 			sleep(3);
+			ui_print(".");
 			int err=0;
 			if (ensure_root_path_unmounted("SYSTEM:")) {
 				LOGE("BL: Cant' unmount SYSTEM\n");
@@ -1537,6 +1543,7 @@ static char
 				LOGE("BL: Cant' unmount SYSTEM\n");
 				err=1;
 			}
+			ui_print(".");
 			if (err) return err;
 			ui_clear_key_queue();
 			init=0;
@@ -1558,6 +1565,7 @@ static char
 				}
 				_exit(-1);
 			}
+			ui_print(".\n");
 		}
         int key = ui_wait_key();
 
