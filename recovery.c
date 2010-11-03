@@ -211,7 +211,6 @@ static void
 
     // --> write the arguments we have back into the bootloader control block
     // always boot into recovery after this (until finish_recovery() is called)
-    LOGI("get_args_end");
     strlcpy(boot.command, "boot-recovery", sizeof(boot.command));
     strlcpy(boot.recovery, "/sbin/recovery\n", sizeof(boot.recovery));
     int i;
@@ -231,49 +230,71 @@ static void
         finish_recovery(const char *send_intent)
 {
     // By this point, we're ready to return to the main system...
+    //ui_print("\nF1");
     if (send_intent != NULL) {
         FILE *fp = fopen_root_path(INTENT_FILE, "w");
+        //ui_print("."); //1
         if (fp == NULL) {
+			//ui_print("."); //2
             LOGE("Can't open %s\n", INTENT_FILE);
         } else {
+			//ui_print("."); //2
             fputs(send_intent, fp);
             check_and_fclose(fp, INTENT_FILE);
         }
     }
 
     // Copy logs to cache so the system can find out what happened.
+    //ui_print("\nF2");
     FILE *log = fopen_root_path(LOG_FILE, "a");
+    //ui_print("."); //1
     if (log == NULL) {
+		//ui_print("."); //2
         LOGE("Can't open %s\n", LOG_FILE);
     } else {
+		//ui_print("."); //2
         FILE *tmplog = fopen(TEMPORARY_LOG_FILE, "r");
         if (tmplog == NULL) {
+			//ui_print("."); //3
             LOGE("Can't open %s\n", TEMPORARY_LOG_FILE);
         } else {
+			//ui_print("."); //3
             static long tmplog_offset = 0;
             fseek(tmplog, tmplog_offset, SEEK_SET);  // Since last write
+            //ui_print("."); //4
             char buf[4096];
             while (fgets(buf, sizeof(buf), tmplog)) fputs(buf, log);
+            //ui_print("."); //5
             tmplog_offset = ftell(tmplog);
             check_and_fclose(tmplog, TEMPORARY_LOG_FILE);
+            //ui_print("."); //6
         }
         check_and_fclose(log, LOG_FILE);
+        //ui_print(":"); //
     }
-
+    
+	//ui_print("\nF3");
     // Reset the bootloader message to revert to a normal main system boot.
     struct bootloader_message boot;
+    //ui_print("."); //1
     memset(&boot, 0, sizeof(boot));
+    //ui_print("."); //2
     set_bootloader_message(&boot);
+    //ui_print("."); //3
 
+	//ui_print("\nF4");
     // Remove the command file, so recovery won't repeat indefinitely.
     char path[PATH_MAX] = "";
     if (ensure_root_path_mounted(COMMAND_FILE) != 0 ||
         translate_root_path(COMMAND_FILE, path, sizeof(path)) == NULL ||
         (unlink(path) && errno != ENOENT)) {
+			//ui_print("."); //1
         LOGW("Can't unlink %s\n", COMMAND_FILE);
     }
 
+	//ui_print("\nF5");
     sync();  // For good measure.
+    //ui_print(".\n"); //1
 }
 
 #define TEST_AMEND 0
@@ -1467,12 +1488,13 @@ static char
 	list[0]=NULL;
 	
 	//In case if something goes wrong
+	ui_print("."); //9
 	finish_recovery(NULL);
 	
 	
     for (;;) {
 		if (init) {
-			ui_print("Loading. Please wait...");
+			ui_print("."); //10
 			if (ensure_root_path_mounted("SDCARD:")) {
 				LOGE("BL: Cant' mount SDCARD\n");
 				return 1;
@@ -1489,7 +1511,7 @@ static char
 			}
 			list[0]=NULL;
 			
-			ui_print(".");
+			ui_print("."); //11
 			
 			FILE* f = fopen("/sdcard/.bootlst", "r");
 			if (f == NULL) {
@@ -1527,10 +1549,10 @@ static char
 				multi=0;
 				return 1;
 			}
-			ui_print(".");
+			ui_print("."); //12
 			//rest a bit, to let FS's to be detected and unmounted properly
 			sleep(3);
-			ui_print(".");
+			ui_print("."); //13
 			int err=0;
 			if (ensure_root_path_unmounted("SYSTEM:")) {
 				LOGE("BL: Cant' unmount SYSTEM\n");
@@ -1544,7 +1566,7 @@ static char
 				LOGE("BL: Cant' unmount SYSTEM\n");
 				err=1;
 			}
-			ui_print(".");
+			ui_print("."); //14
 			if (err) return err;
 			ui_clear_key_queue();
 			init=0;
@@ -1566,7 +1588,7 @@ static char
 				}
 				_exit(-1);
 			}
-			ui_print(".\n");
+			ui_print(".\n"); //15
 		}
         int key = ui_wait_key();
 
@@ -1629,12 +1651,14 @@ int
     ui_print("\n  by LeshaK (forum.samdroid.net)");
     ui_print("\n  modified by antibyte & Xmister");
     ui_print("\n  version 0.9\n\n");
+    ui_print("Loading. Please wait...");
     
     int previous_runs = 0;
     const char *send_intent = NULL;
     const char *update_package = NULL;
     int wipe_data = 0, wipe_cache = 0;
-
+    
+	ui_print("."); //4
     int arg;
     while ((arg = getopt_long(argc, argv, "", OPTIONS, NULL)) != -1) {
         switch (arg) {
@@ -1648,12 +1672,13 @@ int
             continue;
         }
     }
-
+	ui_print("."); //5
     fprintf(stderr, "Command:");
     for (arg = 0; arg < argc; arg++) {
         fprintf(stderr, " \"%s\"", argv[arg]);
     }
     fprintf(stderr, "\n\n");
+    ui_print("."); //6
 
     property_list(print_property, NULL);
     fprintf(stderr, "\n");
@@ -1661,14 +1686,14 @@ int
 #if TEST_AMEND
     test_amend();
 #endif
-
+	ui_print("."); //7
     RecoveryCommandContext ctx = { NULL };
     if (register_update_commands(&ctx)) {
         LOGE("Can't install update commands\n");
     }
 
     int status = INSTALL_SUCCESS;
-
+	ui_print("."); //8
     if (update_package != NULL) {
         status = install_package(update_package);
         if (status != INSTALL_SUCCESS) ui_print("Installation aborted.\n");
@@ -1682,7 +1707,7 @@ int
 	char ret=1;
     if (status != INSTALL_SUCCESS) ui_set_background(BACKGROUND_ICON_ERROR);
     if (status != INSTALL_SUCCESS /* || ui_text_visible() */ ) ret=pre_menu();
-    
+
     /*On error, or if choosed, show recovery*/
     if ( ret ) prompt_and_wait();
 

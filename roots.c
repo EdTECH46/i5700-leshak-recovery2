@@ -92,16 +92,18 @@ static void check_fs() {
 	RootInfo *info;
        for (i = 1 ;i < 4 ;i++){
           info = &g_roots[i];
-		  if(!chdir(info->mount_point)){
-       	    mkdir(info->mount_point, 0755);  // in case it doesn't already exist
-          } else chdir("/");
-          if ( !strncmp(info->device,"/sdcard/",8) ) {
-			  strcpy(info->filesystem,"ext4");
-		  } else {		  
-			  memset(info->filesystem,0,5);
-			  if ( !mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext2\0",5);
-			  else if ( !mount(info->device, info->mount_point, "ext4", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext4\0",5);
-			  else memcpy(info->filesystem,"rfs\0",4);	 
+          if ( internal_root_mounted(info) < 0 ) {
+			  if(!chdir(info->mount_point)){
+				mkdir(info->mount_point, 0755);  // in case it doesn't already exist
+			  } else chdir("/");
+			  if ( !strncmp(info->device,"/sdcard/",8) ) {
+				  strcpy(info->filesystem,"ext4");
+			  } else {		  
+				  memset(info->filesystem,0,5);
+				  if ( !mount(info->device, info->mount_point, "ext2", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext2\0",5);
+				  else if ( !mount(info->device, info->mount_point, "ext4", MS_NODEV | MS_NOSUID | MS_NOATIME | MS_NODIRATIME, NULL)) memcpy(info->filesystem,"ext4\0",5);
+				  else memcpy(info->filesystem,"rfs\0",4);	 
+			  }
 		  }
        }
  }
